@@ -1,0 +1,7 @@
+build
+.dart_tool
+.flutter-*
+.packages
+.pub-cache
+.idea
+.vscode
