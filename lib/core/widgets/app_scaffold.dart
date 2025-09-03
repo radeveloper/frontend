@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'app_nav_bar.dart';
 
+/// A reusable scaffold that applies the app-wide navigation bar and header styling.
+///
+/// By default, it displays a title, an optional list of action widgets,
+/// and the bottom navigation bar defined by [AppNavBar]. Passing
+/// [showNav] as false hides the navigation bar, which is useful for
+/// splash or entry screens such as the nickname prompt.
 class AppScaffold extends StatelessWidget {
   final String title;
   final Widget body;
@@ -8,6 +14,8 @@ class AppScaffold extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onNavSelected;
   final bool showHelp;
+  /// Whether to show the bottom navigation bar. Defaults to true.
+  final bool showNav;
 
   const AppScaffold({
     super.key,
@@ -17,6 +25,7 @@ class AppScaffold extends StatelessWidget {
     required this.onNavSelected,
     this.actions,
     this.showHelp = true,
+    this.showNav = true,
   });
 
   @override
@@ -33,7 +42,9 @@ class AppScaffold extends StatelessWidget {
         ],
       ),
       body: body,
-      bottomNavigationBar: AppNavBar(currentIndex: currentIndex, onSelected: onNavSelected),
+      // Show the bottom nav bar only when [showNav] is true.
+      bottomNavigationBar:
+      showNav ? AppNavBar(currentIndex: currentIndex, onSelected: onNavSelected) : null,
     );
   }
 }
