@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../../../core/theme/tokens.dart';
 import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/app_button.dart';
@@ -6,13 +7,20 @@ import '../../../../core/widgets/app_divider_text.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import 'lobby_page.dart';
 
+/// Indicates which form (create or join) should be focused when the page opens.
 enum CreateJoinFocus { create, join }
+
+/// Arguments used when navigating to this page to control initial focus.
 class CreateJoinRoomArgs {
   final CreateJoinFocus focus;
   const CreateJoinRoomArgs(this.focus);
 }
 
+/// A page allowing users to either create a new poker room or join an
+/// existing one by ID. Once a room is successfully created or joined,
+/// the user is navigated directly to the lobby.
 class CreateJoinRoomPage extends StatefulWidget {
   const CreateJoinRoomPage({super.key});
 
@@ -32,7 +40,8 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
   final _roomIdCtrl = TextEditingController();
 
   bool get _canCreate => (_roomNameCtrl.text.trim().isNotEmpty);
-  bool get _canJoin => (_roomIdCtrl.text.trim().isNotEmpty && AppValidators.roomId(_roomIdCtrl.text) == null);
+  bool get _canJoin => (_roomIdCtrl.text.trim().isNotEmpty &&
+      AppValidators.roomId(_roomIdCtrl.text) == null);
 
   @override
   void initState() {
@@ -43,11 +52,15 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
       final args = ModalRoute.of(context)?.settings.arguments as CreateJoinRoomArgs?;
       if (args?.focus == CreateJoinFocus.join) {
         final ctx = _joinFieldKey.currentContext;
-        if (ctx != null) await Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250));
+        if (ctx != null) {
+          await Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250));
+        }
         _joinFocus.requestFocus();
       } else {
         final ctx = _createFieldKey.currentContext;
-        if (ctx != null) await Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250));
+        if (ctx != null) {
+          await Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250));
+        }
         _createFocus.requestFocus();
       }
     });
@@ -74,7 +87,7 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // CREATE
+                // Header for the create form
                 const AppSectionHeader(title: 'Create a Room'),
                 Form(
                   key: _createKey,
@@ -108,7 +121,7 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
                 const AppDividerText(text: 'OR'),
                 const SizedBox(height: AppSpacing.xl),
 
-                // JOIN
+                // Header for the join form
                 const AppSectionHeader(title: 'Join a Room', margin: EdgeInsets.only(bottom: 16)),
                 Form(
                   key: _joinKey,
@@ -152,19 +165,57 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
     );
   }
 
+  /// Handles form submission for creating a room. Navigates to the lobby
+  /// upon successful validation. In a real app this is where you would
+  /// integrate with your backend and wait for confirmation before
+  /// navigation.
   void _tryCreate() {
     if (_createKey.currentState?.validate() ?? false) {
       final name = _roomNameCtrl.text.trim();
-      // TODO: backend entegrasyonu (HTTP / create room) → success: navigate
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Room "$name" created')));
+      // Provide immediate feedback.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Room "${name.isNotEmpty ? name : 'New Room'}" created')),
+      );
+      // Navigate directly to the lobby. Pass a dummy host participant; in a
+      // real application this would come from your backend.
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => LobbyPage(
+            roomName: name.isNotEmpty ? name : 'New Room',
+            participants: const [
+              Participant(name: 'Host', isHost: true, hasVoted: false),
+            ],
+            maxParticipants: 20,
+            status: LobbyStatus.beforeVoting,
+          ),
+        ),
+      );
     }
   }
 
+  /// Handles form submission for joining a room. Navigates to the lobby
+  /// upon successful validation. In a real app this is where you would
+  /// validate the room ID against your backend and fetch the current
+  /// room state.
   void _tryJoin() {
     if (_joinKey.currentState?.validate() ?? false) {
       final id = _roomIdCtrl.text.trim();
-      // TODO: backend entegrasyonu (HTTP/WS join) → success: navigate
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Joined room $id')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Joined room $id')),
+      );
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => LobbyPage(
+            roomName: id.isNotEmpty ? id : 'Room',
+            participants: const [
+              Participant(name: 'You', hasVoted: false),
+              Participant(name: 'Host', isHost: true, hasVoted: false),
+            ],
+            maxParticipants: 20,
+            status: LobbyStatus.beforeVoting,
+          ),
+        ),
+      );
     }
   }
 }
