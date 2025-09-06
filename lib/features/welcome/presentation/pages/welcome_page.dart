@@ -54,7 +54,7 @@ class _WelcomePageState extends State<WelcomePage> {
                     Navigator.pushNamed(
                       context,
                       Routes.createJoin,
-                      arguments: const CreateJoinRoomArgs(CreateJoinFocus.create),
+                      arguments: const CreateJoinRoomArgs(focus: CreateJoinFocus.create),
                     );
                   },),
                 ),
@@ -67,7 +67,7 @@ class _WelcomePageState extends State<WelcomePage> {
                       Navigator.pushNamed(
                         context,
                         Routes.createJoin,
-                        arguments: const CreateJoinRoomArgs(CreateJoinFocus.join),
+                        arguments: const CreateJoinRoomArgs(focus: CreateJoinFocus.join),
                       );
                     },
                     variant: AppButtonVariant.secondary,

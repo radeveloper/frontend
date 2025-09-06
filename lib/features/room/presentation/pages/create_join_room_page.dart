@@ -1,157 +1,185 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/tokens.dart';
-import '../../../../core/utils/validators.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_divider_text.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../../../core/session/session.dart';
+import '../../../room/data/rooms_api.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../../poker_socket.dart';
 import 'lobby_page.dart';
 
-/// Indicates which form (create or join) should be focused when the page opens.
 enum CreateJoinFocus { create, join }
 
-/// Arguments used when navigating to this page to control initial focus.
 class CreateJoinRoomArgs {
   final CreateJoinFocus focus;
-  const CreateJoinRoomArgs(this.focus);
+  const CreateJoinRoomArgs({this.focus = CreateJoinFocus.create});
 }
 
-/// A page allowing users to either create a new poker room or join an
-/// existing one by ID. Once a room is successfully created or joined,
-/// the user is navigated directly to the lobby.
 class CreateJoinRoomPage extends StatefulWidget {
-  const CreateJoinRoomPage({super.key});
+  const CreateJoinRoomPage({super.key, this.args = const CreateJoinRoomArgs()});
+  final CreateJoinRoomArgs args;
 
   @override
   State<CreateJoinRoomPage> createState() => _CreateJoinRoomPageState();
 }
 
 class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
-  final _createFocus = FocusNode();
-  final _joinFocus = FocusNode();
-  final _scrollCtrl = ScrollController();
-  final _createFieldKey = GlobalKey();
-  final _joinFieldKey = GlobalKey();
+  final _createName = TextEditingController();
+  final _joinCode = TextEditingController();
   final _createKey = GlobalKey<FormState>();
   final _joinKey = GlobalKey<FormState>();
-  final _roomNameCtrl = TextEditingController();
-  final _roomIdCtrl = TextEditingController();
-
-  bool get _canCreate => (_roomNameCtrl.text.trim().isNotEmpty);
-  bool get _canJoin => (_roomIdCtrl.text.trim().isNotEmpty &&
-      AppValidators.roomId(_roomIdCtrl.text) == null);
+  bool _creating = false;
+  bool _joining = false;
 
   @override
   void initState() {
     super.initState();
-    _roomNameCtrl.addListener(() => setState(() {}));
-    _roomIdCtrl.addListener(() => setState(() {}));
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final args = ModalRoute.of(context)?.settings.arguments as CreateJoinRoomArgs?;
-      if (args?.focus == CreateJoinFocus.join) {
-        final ctx = _joinFieldKey.currentContext;
-        if (ctx != null) {
-          await Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250));
-        }
-        _joinFocus.requestFocus();
-      } else {
-        final ctx = _createFieldKey.currentContext;
-        if (ctx != null) {
-          await Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250));
-        }
-        _createFocus.requestFocus();
-      }
-    });
+    // Token alınmışsa, WS bağlı değilse bağlan.
+    try { if (!PokerSocket.I.connected) PokerSocket.I.connect(); } catch (_) {}
   }
 
   @override
   void dispose() {
-    _createFocus.dispose();
-    _joinFocus.dispose();
-    _scrollCtrl.dispose();
-    _roomNameCtrl.dispose();
-    _roomIdCtrl.dispose();
+    _createName.dispose();
+    _joinCode.dispose();
     super.dispose();
+  }
+
+  Future<void> _onCreate() async {
+    if (!_createKey.currentState!.validate()) return;
+    setState(() => _creating = true);
+    try {
+      final name = _createName.text.trim();
+      final code = await RoomsApi(ApiClient()).createRoom(name);
+
+      PokerSocket.I.joinRoom(code);
+
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => LobbyPage(initialRoomName: name),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Create failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _creating = false);
+    }
+  }
+
+  Future<void> _onJoin() async {
+    if (!_joinKey.currentState!.validate()) return;
+    setState(() => _joining = true);
+    try {
+      final code = _joinCode.text.trim().toUpperCase();
+      final displayName = Session.I.displayName ?? 'Guest';
+
+      await RoomsApi(ApiClient()).joinRoom(code, displayName);
+      PokerSocket.I.joinRoom(code);
+
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => LobbyPage(initialRoomName: 'Room $code'),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Join failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _joining = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final body = SafeArea(
+    final createForm = Form(
+      key: _createKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const AppSectionHeader(title: 'Create a Room'),
+          const SizedBox(height: 12),
+          AppTextField(
+            controller: _createName,
+            hint: 'Room Name',
+            textInputAction: TextInputAction.done,
+            validator: (v) => (v?.trim().isEmpty ?? true) ? 'Room name is required' : null,
+            onSubmitted: (_) => _onCreate(),
+          ),
+          const SizedBox(height: 16),
+          AppButton(
+            label: _creating ? 'Creating…' : 'Create Room',
+            onPressed: _creating ? null : _onCreate,
+            variant: AppButtonVariant.primary,
+          ),
+        ],
+      ),
+    );
+
+    final joinForm = Form(
+      key: _joinKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const AppSectionHeader(title: 'Join a Room'),
+          const SizedBox(height: 12),
+          AppTextField(
+            controller: _joinCode,
+            hint: 'Room ID',
+            textInputAction: TextInputAction.done,
+            validator: (v) {
+              final s = (v ?? '').trim().toUpperCase();
+              if (s.isEmpty) return 'Room code is required';
+              if (s.length != 6) return 'Room code has 6 chars';
+              return null;
+            },
+            onSubmitted: (_) => _onJoin(),
+          ),
+          const SizedBox(height: 16),
+          AppButton(
+            label: _joining ? 'Joining…' : 'Join Room',
+            onPressed: _joining ? null : _onJoin,
+            variant: AppButtonVariant.secondary,
+          ),
+        ],
+      ),
+    );
+
+    /*final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Header for the create form
-                const AppSectionHeader(title: 'Create a Room'),
-                Form(
-                  key: _createKey,
-                  child: Column(
-                    children: [
-                      AppTextField(
-                        key: _createFieldKey,
-                        focusNode: _createFocus,
-                        controller: _roomNameCtrl,
-                        hint: 'Room Name',
-                        borderRadius: 28,
-                        prefixIcon: const Icon(Icons.group, color: AppColors.textSecondary),
-                        validator: (v) => AppValidators.notEmpty(v, msg: 'Room name is required'),
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _tryCreate(),
-                      ),
-                      const SizedBox(height: AppSpacing.m),
-                      Container(
-                        decoration: BoxDecoration(boxShadow: AppShadow.soft),
-                        child: AppButton(
-                          label: 'Create Room',
-                          onPressed: _canCreate ? _tryCreate : null,
-                          variant: AppButtonVariant.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: const [
+              // üstte create formu
+            ],
+          ),
+        ),
+      ),
+    );*/
 
-                const SizedBox(height: AppSpacing.xl),
-                const AppDividerText(text: 'OR'),
-                const SizedBox(height: AppSpacing.xl),
-
-                // Header for the join form
-                const AppSectionHeader(title: 'Join a Room', margin: EdgeInsets.only(bottom: 16)),
-                Form(
-                  key: _joinKey,
-                  child: Column(
-                    children: [
-                      AppTextField(
-                        key: _joinFieldKey,
-                        focusNode: _joinFocus,
-                        controller: _roomIdCtrl,
-                        hint: 'Room ID',
-                        borderRadius: 28,
-                        prefixIcon: const Icon(Icons.tag, color: AppColors.textSecondary),
-                        validator: AppValidators.roomId,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => _tryJoin(),
-                      ),
-                      const SizedBox(height: AppSpacing.m),
-                      Container(
-                        decoration: BoxDecoration(boxShadow: AppShadow.soft),
-                        child: AppButton(
-                          label: 'Join Room',
-                          onPressed: _canJoin ? _tryJoin : null,
-                          variant: AppButtonVariant.secondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+    // içerik (create + divider + join)
+    final body = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              createForm,
+              const SizedBox(height: 20),
+              const AppDividerText(text: 'OR'),
+              const SizedBox(height: 20),
+              joinForm,
+            ],
           ),
         ),
       ),
@@ -162,60 +190,7 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
       body: body,
       currentIndex: 0,
       onNavSelected: (_) {},
+      showNav: true,
     );
-  }
-
-  /// Handles form submission for creating a room. Navigates to the lobby
-  /// upon successful validation. In a real app this is where you would
-  /// integrate with your backend and wait for confirmation before
-  /// navigation.
-  void _tryCreate() {
-    if (_createKey.currentState?.validate() ?? false) {
-      final name = _roomNameCtrl.text.trim();
-      // Provide immediate feedback.
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Room "${name.isNotEmpty ? name : 'New Room'}" created')),
-      );
-      // Navigate directly to the lobby. Pass a dummy host participant; in a
-      // real application this would come from your backend.
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => LobbyPage(
-            roomName: name.isNotEmpty ? name : 'New Room',
-            participants: const [
-              Participant(name: 'Host', isHost: true, hasVoted: false),
-            ],
-            maxParticipants: 20,
-            status: LobbyStatus.beforeVoting,
-          ),
-        ),
-      );
-    }
-  }
-
-  /// Handles form submission for joining a room. Navigates to the lobby
-  /// upon successful validation. In a real app this is where you would
-  /// validate the room ID against your backend and fetch the current
-  /// room state.
-  void _tryJoin() {
-    if (_joinKey.currentState?.validate() ?? false) {
-      final id = _roomIdCtrl.text.trim();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Joined room $id')),
-      );
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => LobbyPage(
-            roomName: id.isNotEmpty ? id : 'Room',
-            participants: const [
-              Participant(name: 'You', hasVoted: false),
-              Participant(name: 'Host', isHost: true, hasVoted: false),
-            ],
-            maxParticipants: 20,
-            status: LobbyStatus.beforeVoting,
-          ),
-        ),
-      );
-    }
   }
 }

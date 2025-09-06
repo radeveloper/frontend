@@ -5,15 +5,11 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/routing/routes.dart';
-import '../../../room/presentation/pages/create_join_room_page.dart';
+import '../../../auth/data/auth_api.dart';
+import '../../../../core/network/api_client.dart';
+import '../../../../core/session/session.dart';
+import '../../../../poker_socket.dart';
 
-/// The first screen of the app where users pick a nickname.
-///
-/// This page prompts the user for a nickname and, once provided,
-/// navigates to the create/join room screen. It leverages the
-/// design system components such as [AppButton], [AppTextField],
-/// and [AppScaffold] to ensure a consistent look and feel across
-/// platforms.
 class NicknamePage extends StatefulWidget {
   const NicknamePage({super.key});
 
@@ -22,96 +18,88 @@ class NicknamePage extends StatefulWidget {
 }
 
 class _NicknamePageState extends State<NicknamePage> {
-  final _nicknameCtrl = TextEditingController();
+  final _controller = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  bool _loading = false;
 
-  bool get _canContinue => _nicknameCtrl.text.trim().isNotEmpty;
+  Future<void> _continue() async {
+    if (!_formKey.currentState!.validate()) return;
+    final name = _controller.text.trim();
+    setState(() => _loading = true);
+    try {
+      await AuthApi(ApiClient()).guest(name);
+      Session.I.displayName = name;
 
-  @override
-  void initState() {
-    super.initState();
-    _nicknameCtrl.addListener(() => setState(() {}));
+      // JWT ile WS bağlantısını aç
+      PokerSocket.I.connect();
+
+      if (!mounted) return;
+      Navigator.of(context).pushNamed(Routes.createJoin);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Sign-in failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
   void dispose() {
-    _nicknameCtrl.dispose();
+    _controller.dispose();
     super.dispose();
-  }
-
-  void _continue() {
-    // Once a nickname is entered, navigate to the create/join page.
-    // Passing a default focus of create keeps the UX simple; users can still
-    // switch to "Join" on the next screen if they prefer.
-    Navigator.pushReplacementNamed(
-      context,
-      Routes.createJoin,
-      arguments: const CreateJoinRoomArgs(CreateJoinFocus.create),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final body = SafeArea(
+    final body = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Form(
+            key: _formKey,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const SizedBox(height: AppSpacing.xl),
-                // Large badge-like icon to represent the user.
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppColors.primary, width: 6),
-                  ),
-                  child: const Icon(
-                    Icons.badge_rounded,
-                    color: AppColors.primary,
-                    size: 56,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                Text(
+                const SizedBox(height: 16),
+                const Text(
                   'What should we call you?',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  style: TextStyle(
                     color: AppColors.textPrimary,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                const SizedBox(height: 10),
-                Text(
+                const SizedBox(height: 8),
+                const Text(
                   'Choose a nickname to use in the room.',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  style: TextStyle(
                     color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 16,
                   ),
                 ),
-                const SizedBox(height: 36),
-                // Nickname input field with pill-shaped border.
+                const SizedBox(height: 32),
                 AppTextField(
-                  controller: _nicknameCtrl,
+                  controller: _controller,
                   hint: 'Enter your nickname',
-                  borderRadius: 28,
-                  prefixIcon: const Icon(Icons.person, color: AppColors.textSecondary),
-                  validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Nickname is required' : null,
                   textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _canContinue ? _continue() : null,
+                  validator: (v) {
+                    final s = v?.trim() ?? '';
+                    if (s.isEmpty) return 'Please enter a nickname';
+                    if (s.length < 2) return 'At least 2 characters';
+                    return null;
+                  },
+                  onSubmitted: (_) => _continue(),
                 ),
-                const SizedBox(height: AppSpacing.m),
-                // Continue button with a subtle shadow.
-                Container(
-                  decoration: BoxDecoration(boxShadow: AppShadow.soft),
-                  child: AppButton(
-                    label: 'Continue',
-                    onPressed: _canContinue ? _continue : null,
-                    variant: AppButtonVariant.primary,
-                  ),
+                const SizedBox(height: 24),
+                AppButton(
+                  label: _loading ? 'Please wait…' : 'Continue',
+                  onPressed: _loading ? null : _continue,
+                  variant: AppButtonVariant.primary,
                 ),
               ],
             ),
@@ -125,7 +113,6 @@ class _NicknamePageState extends State<NicknamePage> {
       body: body,
       currentIndex: 0,
       onNavSelected: (_) {},
-      // Hide the bottom navigation bar on the nickname screen.
       showNav: false,
     );
   }

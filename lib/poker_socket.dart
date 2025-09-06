@@ -1,132 +1,177 @@
+// lib/poker_socket.dart
+import 'dart:async';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 
-/// Socket.IO istemcisi (Flutter)
-/// - Varsayılan reconnect davranışını kullanır (önerilen ve yeterli).
-/// - `vote`/`reveal` için `storyId` opsiyoneldir (aktif story desteğine uyumlu).
-/// - Bağlantıyı yenilerken dinleyici çakışmalarını önlemek için `disconnect()` temizlik yapar.
+import 'core/config/env.dart';
+import 'core/session/session.dart';
 
-/// Socket.IO istemcisi (Flutter)
-/// - Varsayılan reconnect davranışı (Socket.IO default) kullanılır.
-/// - `vote`/`reveal` için `storyId` opsiyoneldir (aktif story desteğine uyumlu).
-/// - Uygulama event’lerini (joined, story:revealed, story:reset, ...) UI katmanı dinler.
+typedef Json = Map<String, dynamic>;
+
 class PokerSocket {
   PokerSocket._();
   static final PokerSocket I = PokerSocket._();
 
   IO.Socket? _socket;
+  String? _code;
 
-  /// Bağlan:
-  /// iOS Simulator → http://127.0.0.1:3000
-  /// Android Emulator → http://10.0.2.2:3000
-  /// Gerçek cihaz → http://<bilgisayar-LAN-IP>:3000
-  void connect({required String hostBase}) {
-    final url = '$hostBase/poker';
+  bool get connected => _socket?.connected == true;
+  String? get socketId => _socket?.id;
 
-    // Eski bağlantıyı temizle (dinleyiciler + soket)
-    disconnect();
+  // UI katmanı için callback'ler
+  void Function(Json)? onRoomState;
+  void Function(Json)? onVotingStarted;
+  void Function(Json)? onRevealed;
+  void Function(Json)? onResetDone;
 
-    _socket = IO.io(
-      url,
-      IO.OptionBuilder()
-          .setTransports(['websocket']) // mobilde doğrudan WS
-          .disableAutoConnect()         // manuel connect kontrolü
-          .setAuth({'token': '<dev-token-or-session-token>'})
-          .build(),
-    );
+  // joinRoom beklemesi için tek-seferlik tamamlayıcı
+  Completer<Json>? _pendingRoomState;
 
-    // Bağlantı durumu logları
-    _socket!.onConnect((_) => print('Socket connected: ${_socket!.id}'));
-    _socket!.onConnectError((e) => print('WS connect_error: $e'));
-    _socket!.onError((e) => print('WS error: $e'));       // transport hataları
-    _socket!.onDisconnect((_) => print('WS disconnected'));
+  /// WS bağlantısını kurar.
+  /// - [hostBase]: 'http://192.168.1.23:3000' gibi (buradan ws URL türetilir)
+  /// - [wsBase]: 'ws://192.168.1.23:3000/poker' gibi (doğrudan ws)
+  /// - [jwt]: Token override (boşsa Session.I.token kullanılır)
+  void connect({String? hostBase, String? wsBase, String? jwt}) {
+    final token = (jwt ?? Session.I.token) ?? '';
+    if (token.isEmpty) {
+      throw Exception('No JWT token in Session');
+    }
 
-    // Debug: tüm eventleri görmek istersen aç (geliştirme sırasında faydalı)
-    // _socket!.onAny((event, data) => print('SOCKET [$event]: $data'));
-    _socket!.onAny((event, data) => print('SOCKET [$event]: $data'));
-    _socket!.connect();
-  }
+    disconnect(); // eski soketi kapat
 
-  /// UI katmanının spesifik event'lere abone olması için yardımcı.
-  void on(String event, void Function(dynamic) handler) => _socket?.on(event, handler);
+    final url = _buildWsUrl(hostBase: hostBase, wsBase: wsBase);
 
-  /// Belirli bir dinleyiciyi kaldır (handler verilmezse tüm dinleyiciler kaldırılır).
-  void off(String event, [void Function(dynamic)? handler]) => _socket?.off(event, handler);
-
-  /// Bağlı mı?
-  bool get isConnected => _socket?.connected == true;
-
-  /// Odaya katıl
-  void join({required String code, required String name}) {
-    _socket?.emit('join', {'code': code, 'name': name});
-  }
-
-  /// Oy ver — gateway aktif story kullandığı için storyId opsiyonel.
-  void vote({
-    required String code,
-    String? storyId, // opsiyonel
-    required String participantId,
-    required String value,
-  }) {
-    final payload = <String, dynamic>{
-      'code': code,
-      'participantId': participantId,
-      'value': value,
-    };
-    if (storyId != null) payload['storyId'] = storyId;
-    _socket?.emit('vote', payload);
-  }
-
-  /// Açıkla — aktif story varsa storyId göndermene gerek yok.
-  void reveal({required String code, String? storyId}) {
-    final payload = <String, dynamic>{'code': code};
-    if (storyId != null) payload['storyId'] = storyId;
-    _socket?.emit('reveal', payload);
-  }
-
-  /// Tüm dinleyicileri temizleyip soketi kapat.
-  void disconnect() {
-    if (_socket == null) return;
-
-    // Uygulama eventleri — UI tarafında abone olunanlar
-    _socket!
-      ..off('joined')
-      ..off('participant:joined')
-      ..off('vote:update')
-      ..off('story:revealed')
-      ..off('story:reset')
-      ..off('reveal:accepted')
-      ..off('error'); // gateway'ten gelebilecek app-level error
-
-    // Bağlantı durumu eventleri
-    _socket!
-      ..off('connect')
-      ..off('connect_error')
-      ..off('error')
-      ..off('disconnect');
-
-    _socket!.dispose();
-    _socket = null;
-  }
-
-  void reconnectWithAuth({required String token}) {
-    if (_socket == null) return;
-    final url = _socket!.io.uri; // mevcut url
-    disconnect();
     _socket = IO.io(
       url,
       IO.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuth({'token': token})
+          .setExtraHeaders({'Authorization': 'Bearer $token'})
+          .enableForceNew()
           .disableAutoConnect()
-          .setAuth({'token': token}) // 👈 WS handshake auth
           .build(),
     );
-    _socket!.onConnect((_) => print('Socket connected: ${_socket!.id}'));
-    _socket!.onConnectError((e) => print('WS connect_error: $e'));
-    _socket!.onError((e) => print('WS error: $e'));
-    _socket!.onDisconnect((_) => print('WS disconnected'));
-    _socket!.onAny((event, data) => print('SOCKET [$event]: $data'));
+
+    // Temel event'ler
+    _socket!.onConnect((_) => _log('connected ${_socket!.id}'));
+    _socket!.onConnectError((e) => _log('connect_error $e'));
+    _socket!.onError((e) => _log('error $e'));
+    _socket!.onDisconnect((_) => _log('disconnected'));
+
+    // Server -> Client event'leri (çok argüman gelebilir)
+    _socket!.on('room_state', (a, [b, c, d]) {
+      final raw = _firstMap(a, b, c, d) ?? a;
+      final json = _toJson(raw);
+      onRoomState?.call(json);
+      // joinRoom bekliyorsa tamamla
+      _pendingRoomState?.complete(json);
+      _pendingRoomState = null;
+    });
+    _socket!.on('voting_started', (a, [b, c, d]) {
+      final raw = _firstMap(a, b, c, d) ?? a;
+      onVotingStarted?.call(_toJson(raw));
+    });
+    _socket!.on('revealed', (a, [b, c, d]) {
+      final raw = _firstMap(a, b, c, d) ?? a;
+      onRevealed?.call(_toJson(raw));
+    });
+    _socket!.on('reset_done', (a, [b, c, d]) {
+      final raw = _firstMap(a, b, c, d) ?? a;
+      onResetDone?.call(_toJson(raw));
+    });
+
     _socket!.connect();
   }
 
-}
+  void disconnect() {
+    try {
+      _pendingRoomState = null;
+      _socket?.off('room_state');
+      _socket?.off('voting_started');
+      _socket?.off('revealed');
+      _socket?.off('reset_done');
+      _socket?.disconnect();
+      (_socket as dynamic)?.close?.call();
+      (_socket as dynamic)?.dispose?.call();
+    } catch (_) {
+      // swallow
+    } finally {
+      _socket = null;
+    }
+  }
 
+  /// Odaya katıl; ilk 'room_state' geldiğinde Future tamamlanır.
+  Future<Json> joinRoom(String code, {Duration timeout = const Duration(seconds: 8)}) {
+    _code = code;
+    final s = _ensureConnected();
+
+    // varsa önceki beklemeyi iptal et
+    _pendingRoomState = Completer<Json>();
+
+    // Join isteğini gönder (ack bağımlılığı yok)
+    s.emit('join_room', {'code': code});
+
+    return _pendingRoomState!.future.timeout(timeout, onTimeout: () {
+      _pendingRoomState = null;
+      throw Exception('join_room timeout');
+    });
+  }
+
+  /// Owner aksiyonları
+  void startVoting() => _emit('start_voting', {'code': _code});
+  void reveal()      => _emit('reveal',       {'code': _code});
+  void reset()       => _emit('reset',        {'code': _code});
+
+  /// Katılımcı aksiyonu
+  void vote(String value) => _emit('vote', {'code': _code, 'value': value});
+
+  // ---- Helpers ----
+
+  IO.Socket _ensureConnected() {
+    final s = _socket;
+    if (s == null || s.disconnected) {
+      throw Exception('Socket not connected');
+    }
+    return s;
+  }
+
+  void _emit(String event, [dynamic data]) {
+    final s = _ensureConnected();
+    s.emit(event, data);
+  }
+
+  Json _toJson(dynamic data) {
+    if (data is Map) {
+      return data.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return {'ok': data};
+  }
+
+  Map? _firstMap(dynamic a, [dynamic b, dynamic c, dynamic d]) {
+    if (a is Map) return a;
+    if (b is Map) return b;
+    if (c is Map) return c;
+    if (d is Map) return d;
+    return null;
+  }
+
+  String _buildWsUrl({String? hostBase, String? wsBase}) {
+    if (wsBase != null && wsBase.isNotEmpty) {
+      return _ensurePokerPath(wsBase);
+    }
+    final base = (hostBase?.isNotEmpty ?? false) ? hostBase! : Env.api;
+    if (base.startsWith('ws://') || base.startsWith('wss://')) {
+      return _ensurePokerPath(base);
+    }
+    final httpish = (base.startsWith('http://') || base.startsWith('https://')) ? base : 'http://$base';
+    final ws = httpish.replaceFirst(RegExp(r'^http'), 'ws');
+    return _ensurePokerPath(ws);
+  }
+
+  String _ensurePokerPath(String wsUrl) {
+    if (wsUrl.endsWith('/poker')) return wsUrl;
+    if (wsUrl.endsWith('/')) return '${wsUrl}poker';
+    return '$wsUrl/poker';
+  }
+
+  void _log(Object o) => print('[SOCKET] $o');
+}

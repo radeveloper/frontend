@@ -1,325 +1,271 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/tokens.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_scaffold.dart';
+import '../../../../core/session/session.dart';
+import '../../../../poker_socket.dart';
 
-/// Represents the various states of the lobby.
-///
-/// * [LobbyStatus.beforeVoting] – The session has not yet started.
-///   The host can see the number of participants and start the round.
-/// * [LobbyStatus.voting] – Voting is underway; a green dot marks
-///   participants who have submitted their estimates.
-/// * [LobbyStatus.revealed] – Votes have been revealed; participant
-///   avatars are replaced with their vote values and the average is shown.
-enum LobbyStatus { beforeVoting, voting, revealed }
-
-/// A simple model representing a participant in the poker room.
-class Participant {
-  final String name;
-  final String? avatarUrl;
-  final bool isHost;
-  final bool hasVoted;
-  final int? vote;
-
-  const Participant({
-    required this.name,
-    this.avatarUrl,
-    this.isHost = false,
-    this.hasVoted = false,
-    this.vote,
-  });
-}
-
-/// The lobby page displays the participants around a circle and an action
-/// button whose label changes based on the lobby status.
 class LobbyPage extends StatefulWidget {
-  final String roomName;
-  final List<Participant> participants;
-  final int maxParticipants;
-  final LobbyStatus status;
-
-  const LobbyPage({
-    super.key,
-    required this.roomName,
-    required this.participants,
-    required this.maxParticipants,
-    this.status = LobbyStatus.beforeVoting,
-  });
+  const LobbyPage({super.key, this.initialRoomName});
+  final String? initialRoomName;
 
   @override
   State<LobbyPage> createState() => _LobbyPageState();
 }
 
 class _LobbyPageState extends State<LobbyPage> {
-  int _navIndex = 0;
+  String _roomName = 'Room';
+  String _status = 'pending'; // pending | voting | revealed
+  List<_P> _participants = const [];
+  double? _average;
+
+  bool get _isOwner {
+    final me = _participants.firstWhere(
+          (p) => p.id == Session.I.participantId,
+      orElse: () => _P.none(),
+    );
+    return me.isOwner;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _roomName = widget.initialRoomName ?? 'Room';
+
+    PokerSocket.I.onRoomState = _onRoomState;
+    PokerSocket.I.onVotingStarted = (d) {
+      setState(() => _status = (d['round']?['status'] ?? 'voting').toString());
+    };
+    PokerSocket.I.onRevealed = (d) {
+      final votes = (d['votes'] as List?) ?? const [];
+      setState(() {
+        _status = (d['round']?['status'] ?? 'revealed').toString();
+        _average = (d['average'] is num) ? (d['average'] as num).toDouble() : null;
+        _participants = _participants.map((p) {
+          final v = votes.cast<Map>().firstWhere(
+                (m) => m['participantId'] == p.id,
+            orElse: () => const {},
+          );
+          final value = (v['value'] ?? '').toString();
+          return p.copyWith(voteValue: value.isEmpty ? null : value);
+        }).toList();
+      });
+    };
+    PokerSocket.I.onResetDone = (_) {
+      setState(() {
+        _status = 'pending';
+        _average = null;
+        _participants = _participants.map((p) => p.copyWith(hasVoted: false, voteValue: null)).toList();
+      });
+    };
+  }
+
+  @override
+  void dispose() {
+    if (PokerSocket.I.onRoomState == _onRoomState) {
+      PokerSocket.I.onRoomState = null;
+    }
+    PokerSocket.I.onVotingStarted = null;
+    PokerSocket.I.onRevealed = null;
+    PokerSocket.I.onResetDone = null;
+    super.dispose();
+  }
+
+  void _onRoomState(Map<String, dynamic> s) {
+    final room = (s['room'] as Map?) ?? const {};
+    final participants = (s['participants'] as List?) ?? const [];
+    final round = (s['round'] as Map?) ?? const {};
+    final votes = (s['votes'] as List?) ?? const [];
+
+    setState(() {
+      _roomName = (room['name'] ?? _roomName).toString();
+      _status = (round['status'] ?? _status).toString();
+
+      _participants = participants.map((m) {
+        final id = m['id']?.toString() ?? '';
+        final name = m['displayName']?.toString() ?? 'Guest';
+        final isOwner = m['isOwner'] == true;
+        final hasVoted = m['hasVoted'] == true;
+        String? voteValue;
+        final v = votes.cast<Map>().firstWhere(
+              (x) => x['participantId']?.toString() == id,
+          orElse: () => const {},
+        );
+        final vv = v['value']?.toString();
+        if (vv != null && vv.isNotEmpty) voteValue = vv;
+              return _P(id: id, name: name, isOwner: isOwner, hasVoted: hasVoted, voteValue: voteValue);
+      }).toList();
+
+      if (s['average'] is num) _average = (s['average'] as num).toDouble();
+    });
+  }
+
+  void _start() => PokerSocket.I.startVoting();
+  void _reveal() => PokerSocket.I.reveal();
+  void _reset() => PokerSocket.I.reset();
+  void _vote(String v) => PokerSocket.I.vote(v);
 
   @override
   Widget build(BuildContext context) {
-    // Determine the title and button text based on the current status.
-    final String stageTitle = switch (widget.status) {
-      LobbyStatus.beforeVoting =>
-      'Participants (${widget.participants.length}/${widget.maxParticipants})',
-      LobbyStatus.voting => 'Waiting for votes...',
-      LobbyStatus.revealed => 'Votes Revealed',
+    final title = _roomName;
+    final buttonLabel = switch (_status) {
+      'pending' => 'Start Poker Round',
+      'voting' => 'Reveal Votes',
+      'revealed' => 'Start New Vote',
+      _ => 'Start Poker Round'
     };
-
-    final String buttonLabel = switch (widget.status) {
-      LobbyStatus.beforeVoting => 'Start Poker Round',
-      LobbyStatus.voting => 'Reveal Votes',
-      LobbyStatus.revealed => 'Start New Vote',
+    final buttonAction = switch (_status) {
+      'pending' => _start,
+      'voting' => _reveal,
+      'revealed' => _reset,
+      _ => _start,
     };
+    final buttonEnabled = _isOwner;
 
-    double? average;
-    if (widget.status == LobbyStatus.revealed) {
-      final votes = widget.participants
-          .map((p) => p.vote)
-          .where((v) => v != null)
-          .cast<int>()
-          .toList();
-      if (votes.isNotEmpty) {
-        average = votes.reduce((a, b) => a + b) / votes.length;
-      }
-    }
+    final body = Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Expanded(
+            child: ListView.separated(
+              itemCount: _participants.length,
+              separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.divider),
+              itemBuilder: (context, i) {
+                final p = _participants[i];
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: p.hasVoted ? Colors.green : AppColors.surfaceCard,
+                    child: Text(p.name.isNotEmpty ? p.name[0] : '?'),
+                  ),
+                  title: Text(p.name, style: const TextStyle(color: AppColors.textPrimary)),
+                  subtitle: Text(p.isOwner ? 'Host' : 'Participant',
+                      style: const TextStyle(color: AppColors.textSecondary)),
+                  trailing: (_status == 'revealed' && p.voteValue != null)
+                      ? _VoteChip(p.voteValue!)
+                      : (p.hasVoted ? const Icon(Icons.check_circle, color: Colors.green) : null),
+                  onTap: _status == 'voting' && p.id == Session.I.participantId
+                      ? () => _openVoteSheet(context)
+                      : null,
+                );
+              },
+            ),
+          ),
 
-    final body = SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Heading that shows participant count or voting status.
-            Text(
-              stageTitle,
-              textAlign: TextAlign.center,
-              style: Theme.of(context)
-                  .textTheme
-                  .headlineMedium
-                  ?.copyWith(color: AppColors.textPrimary),
+          if (_status == 'voting') _deckQuickBar(),
+
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(boxShadow: AppShadow.soft),
+            child: AppButton(
+              label: buttonLabel,
+              onPressed: buttonEnabled ? buttonAction : null,
+              variant: AppButtonVariant.primary,
             ),
-            const SizedBox(height: 16),
-            // Circle of participants with interactive display.
-            Expanded(
-              child: _ParticipantCircle(
-                participants: widget.participants,
-                status: widget.status,
-                average: average,
-              ),
-            ),
-            const SizedBox(height: 24),
-            // Primary CTA button with shadow. Actual behaviour should
-            // be implemented in a real app (e.g. emit start/vote events).
-            Container(
-              decoration: BoxDecoration(boxShadow: AppShadow.soft),
-              child: AppButton(
-                label: buttonLabel,
-                onPressed: () {
-                  // TODO: Implement actual voting logic here.
-                },
-                variant: AppButtonVariant.primary,
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          if (_status == 'revealed' && _average != null)
+            Text('Average: ${_average!.toStringAsFixed(1)}',
+                style: const TextStyle(color: AppColors.textSecondary)),
+        ],
       ),
     );
 
     return AppScaffold(
-      title: widget.roomName,
+      title: title,
       body: body,
-      currentIndex: _navIndex,
-      onNavSelected: (i) => setState(() => _navIndex = i),
+      currentIndex: 0,
+      onNavSelected: (_) {},
+      showNav: true,
+    );
+  }
+
+  Widget _deckQuickBar() {
+    const deck = ['1','2','3','5','8','13','21','?'];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        alignment: WrapAlignment.center,
+        children: [
+          for (final v in deck)
+            SizedBox(
+              width: 64, height: 44,
+              child: AppButton(
+                label: v,
+                onPressed: () => _vote(v),
+                variant: AppButtonVariant.secondary,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _openVoteSheet(BuildContext context) {
+    const deck = ['1','2','3','5','8','13','21','?'];
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: AppColors.surface,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Wrap(
+            spacing: 12, runSpacing: 12, alignment: WrapAlignment.center,
+            children: [
+              for (final v in deck)
+                SizedBox(
+                  width: 80, height: 56,
+                  child: AppButton(
+                    label: v,
+                    onPressed: () { Navigator.pop(context); _vote(v); },
+                    variant: AppButtonVariant.primary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
 
-/// Arranges participants evenly around a circle and optionally displays
-/// an average in the center when votes have been revealed.
-class _ParticipantCircle extends StatelessWidget {
-  final List<Participant> participants;
-  final LobbyStatus status;
-  final double? average;
+class _P {
+  final String id;
+  final String name;
+  final bool isOwner;
+  final bool hasVoted;
+  final String? voteValue;
 
-  const _ParticipantCircle({
-    required this.participants,
-    required this.status,
-    this.average,
+  const _P({
+    required this.id,
+    required this.name,
+    required this.isOwner,
+    required this.hasVoted,
+    this.voteValue,
   });
 
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Determine a square area based on the smaller of width/height.
-        final double size = math.min(constraints.maxWidth, constraints.maxHeight);
-        const double avatarSize = 64.0;
-        final double radius = (size / 2) - avatarSize - 12;
-        final double centreX = constraints.maxWidth / 2;
-        final double centreY = constraints.maxHeight / 2;
-        final List<Widget> children = [];
+  factory _P.none() => const _P(id: '', name: '', isOwner: false, hasVoted: false);
 
-        // Outer ring drawn as a faint circle.
-        children.add(
-          Positioned(
-            left: centreX - radius,
-            top: centreY - radius,
-            child: Container(
-              width: radius * 2,
-              height: radius * 2,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: AppColors.divider.withValues(alpha: 0.3),
-                  width: 2,
-                ),
-              ),
-            ),
-          ),
-        );
-
-        // Place each participant around the circle.
-        final int count = participants.length;
-        for (int i = 0; i < count; i++) {
-          final double angle = (2 * math.pi * i / count) - (math.pi / 2);
-          final double x = centreX + radius * math.cos(angle) - (avatarSize / 2);
-          final double y = centreY + radius * math.sin(angle) - (avatarSize / 2);
-          children.add(
-            Positioned(
-              left: x,
-              top: y,
-              child: _ParticipantItem(
-                participant: participants[i],
-                status: status,
-                size: avatarSize,
-              ),
-            ),
-          );
-        }
-
-        // If an average is provided, display it at the center.
-        if (average != null) {
-          children.add(
-            Positioned(
-              left: centreX - 60,
-              top: centreY - 60,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Average',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyLarge
-                        ?.copyWith(color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    average!.toStringAsFixed(1),
-                    style: Theme.of(context)
-                        .textTheme
-                        .displayMedium
-                        ?.copyWith(color: AppColors.textPrimary),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        return Stack(children: children);
-      },
-    );
-  }
+  _P copyWith({bool? hasVoted, String? voteValue}) =>
+      _P(id: id, name: name, isOwner: isOwner, hasVoted: hasVoted ?? this.hasVoted, voteValue: voteValue);
 }
 
-/// Renders an individual participant's avatar, label, and voting state.
-class _ParticipantItem extends StatelessWidget {
-  final Participant participant;
-  final LobbyStatus status;
-  final double size;
-
-  const _ParticipantItem({
-    required this.participant,
-    required this.status,
-    this.size = 64.0,
-  });
-
+class _VoteChip extends StatelessWidget {
+  const _VoteChip(this.value);
+  final String value;
   @override
   Widget build(BuildContext context) {
-    Widget avatarWidget;
-    if (status == LobbyStatus.revealed && participant.vote != null) {
-      // After reveal, show the vote value inside a colored circle.
-      avatarWidget = Container(
-        width: size,
-        height: size,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.neutral700,
-        ),
-        child: Center(
-          child: Text(
-            participant.vote.toString(),
-            style: Theme.of(context)
-                .textTheme
-                .headlineMedium
-                ?.copyWith(color: AppColors.textPrimary),
-          ),
-        ),
-      );
-    } else {
-      // Otherwise display an avatar or fallback icon.
-      avatarWidget = CircleAvatar(
-        radius: size / 2,
-        backgroundImage: participant.avatarUrl != null
-            ? NetworkImage(participant.avatarUrl!)
-            : null,
-        child: participant.avatarUrl == null
-            ? Icon(
-          Icons.person,
-          size: size / 2,
-          color: AppColors.textSecondary,
-        )
-            : null,
-      );
-    }
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Stack(
-          children: [
-            avatarWidget,
-            // Show a small dot to indicate voting status during voting/reveal.
-            if (status == LobbyStatus.voting || status == LobbyStatus.revealed)
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: participant.hasVoted
-                        ? Colors.greenAccent
-                        : AppColors.divider,
-                    border: Border.all(color: Colors.black, width: 1),
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          participant.name + (participant.isHost ? ' (Host)' : ''),
-          textAlign: TextAlign.center,
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(color: AppColors.textPrimary),
-        ),
-      ],
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Text(value, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
     );
   }
 }

@@ -1,281 +1,181 @@
-import 'dart:convert';
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'poker_socket.dart';
+// lib/poker_socket.dart
+import 'dart:async';
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 
-class PokerPage extends StatefulWidget {
-  const PokerPage({super.key});
+import 'core/config/env.dart';
+import 'core/session/session.dart';
 
-  @override
-  State<PokerPage> createState() => _PokerPageState();
-}
+typedef Json = Map<String, dynamic>;
 
-class _PokerPageState extends State<PokerPage> {
-  // iOS sim: 127.0.0.1, Android emu: 10.0.2.2, gerçek cihaz: LAN IP
-  final String base = 'http://127.0.0.1:3000';
-  final String code = 'ABC123';
+class PokerSocket {
+  PokerSocket._();
+  static final PokerSocket I = PokerSocket._();
 
-  String? participantId;
-  String? storyId;
+  IO.Socket? _socket;
+  String? _code;
 
-  bool _resetting = false;
-  String? _jwt;
-  Map<String, String> _headers() => {
-    'Content-Type': 'application/json',
-    if (_jwt != null) 'Authorization': 'Bearer $_jwt!',
-  };
+  bool get connected => _socket?.connected == true;
+  String? get socketId => _socket?.id;
 
-  @override
-  void initState() {
-    super.initState();
+  // UI katmanının set edeceği callback'ler
+  void Function(Json)? onRoomState;
+  void Function(Json)? onVotingStarted;
+  void Function(Json)? onRevealed;
+  void Function(Json)? onResetDone;
 
-    PokerSocket.I.connect(hostBase: base);
+  /// WS bağlantısını kurar.
+  /// - [hostBase]: Örn: 'http://192.168.1.23:3000' (buradan ws URL otomatik türetilir)
+  /// - [wsBase]: Örn: 'ws://192.168.1.23:3000/poker' (doğrudan WS adresi)
+  /// - [jwt]: Token override (vermezsen Session.I.token kullanılır)
+  void connect({String? hostBase, String? wsBase, String? jwt}) {
+    final token = (jwt ?? Session.I.token) ?? '';
+    if (token.isEmpty) {
+      throw Exception('No JWT token in Session');
+    }
 
-    // 🔒 duplicate listener önleme: önce off, sonra on
-    PokerSocket.I.off('joined');
-    PokerSocket.I.on('joined', (data) async {
-      final pid = (data['participant']?['id'] as String?) ?? '';
-      final activeId = (data['session']?['activeStoryId'] as String?) ?? '';
-      if (!mounted) return;
-      setState(() {
-        participantId = pid;
-        if (activeId.isNotEmpty) storyId = activeId;
-      });
-      await _fetchToken(pid);
-      debugPrint('joined => participantId: $participantId, activeStoryId: $storyId');
-      if (pid.isNotEmpty) {
-        await _fetchToken(pid); // 👈 burada token al
-      }
-    });
+    // Eski bağlantıyı kapat
+    disconnect();
 
-    PokerSocket.I.off('story:revealed');
-    PokerSocket.I.on('story:revealed', (data) {
-      debugPrint('revealed => ${jsonEncode(data)}');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Story revealed; konsol loglarına bak!')),
-      );
-    });
+    final url = _buildWsUrl(hostBase: hostBase, wsBase: wsBase);
 
-    PokerSocket.I.off('story:reset');
-    PokerSocket.I.on('story:reset', (data) {
-      debugPrint('story:reset => ${jsonEncode(data)}');
-      if (!mounted) return;
-      // ileride local selectedCard gibi alanlar varsa burada sıfırla
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Yeni tur başladı (oylar temizlendi)')),
-      );
-    });
-
-    PokerSocket.I.off('reveal:accepted');
-    PokerSocket.I.on('reveal:accepted', (data) {
-      debugPrint('reveal:accepted => ${jsonEncode(data)}');
-    });
-
-    PokerSocket.I.off('error');
-    PokerSocket.I.on('error', (e) {
-      debugPrint('socket error: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('WS error: $e')),
-      );
-    });
-
-    PokerSocket.I.off('session:activeChanged');
-    PokerSocket.I.on('session:activeChanged', (data) {
-      final newId = (data['storyId'] as String?) ?? '';
-      if (!mounted) return;
-      setState(() => storyId = newId.isNotEmpty ? newId : null);
-      debugPrint('session:activeChanged => new active story: $storyId');
-    });
-
-    PokerSocket.I.join(code: code, name: 'Ekrem');
-  }
-
-  @override
-  void dispose() {
-    PokerSocket.I.disconnect();
-    super.dispose();
-  }
-
-  Future<void> _fetchToken(String participantId) async {
-    final resp = await http.post(
-      Uri.parse('$base/auth/token'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'participantId': participantId}),
+    _socket = IO.io(
+      url,
+      IO.OptionBuilder()
+          .setTransports(['websocket'])
+      // Sunucu hem handshake.auth.token hem de Authorization header'ını kabul ediyor.
+          .setAuth({'token': token})
+          .setExtraHeaders({'Authorization': 'Bearer $token'})
+          .enableForceNew()
+          .disableAutoConnect()
+          .build(),
     );
-    if (resp.statusCode == 200) {
-      final data = jsonDecode(resp.body) as Map<String, dynamic>;
-      _jwt = data['token'] as String?;
-      if (_jwt != null) {
-        // WS handshake auth için yeniden bağlan
-        PokerSocket.I.reconnectWithAuth(token: _jwt!);
-      }
-    } else {
-      debugPrint('token error: ${resp.statusCode} ${resp.body}');
-    }
+
+    // Temel event'ler
+    _socket!.onConnect((_) => _log('connected ${_socket!.id}'));
+    _socket!.onConnectError((e) => _log('connect_error $e'));
+    _socket!.onError((e) => _log('error $e'));
+    _socket!.onDisconnect((_) => _log('disconnected'));
+
+    // Server -> Client event'leri
+    _socket!.on('room_state', (d) => onRoomState?.call(_toJson(d)));
+    _socket!.on('voting_started', (d) => onVotingStarted?.call(_toJson(d)));
+    _socket!.on('revealed', (d) => onRevealed?.call(_toJson(d)));
+    _socket!.on('reset_done', (d) => onResetDone?.call(_toJson(d)));
+
+    _socket!.connect();
   }
 
-  Future<void> _createStory() async {
+  void disconnect() {
     try {
-      final resp = await http.post(
-        Uri.parse('$base/stories'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'code': code, 'title': 'Login story', 'order': 1}),
-      );
+      _socket?.off('room_state');
+      _socket?.off('voting_started');
+      _socket?.off('revealed');
+      _socket?.off('reset_done');
+      _socket?.disconnect();
+      // Bazı sürümlerde close() yok; varsa deneyelim
+      // ignore: avoid_dynamic_calls
+      (_socket as dynamic)?.close?.call();
 
-      if (resp.statusCode == 200 || resp.statusCode == 201) {
-        final data = jsonDecode(resp.body);
-        final createdId = data['id'] as String?;
-        if (createdId != null && createdId.isNotEmpty) {
-          if (!mounted) return;
-          setState(() => storyId = createdId);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Story created: $storyId')),
-          );
-          return;
-        }
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create story failed: HTTP ${resp.statusCode} ${resp.body}')),
-      );
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Create story error: $err')),
-      );
-    }
-  }
-
-  Future<void> _fetchStoriesAndPickLast() async {
-    try {
-      final resp = await http.get(Uri.parse('$base/sessions/$code/stories'));
-      if (resp.statusCode == 200) {
-        final list = jsonDecode(resp.body) as List<dynamic>;
-        if (list.isNotEmpty) {
-          final last = list.last as Map<String, dynamic>;
-          if (!mounted) return;
-          setState(() => storyId = last['id'] as String);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Picked Story: $storyId')),
-          );
-          return;
-        }
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No stories yet / HTTP ${resp.statusCode}')),
-      );
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Fetch stories error: $err')),
-      );
-    }
-  }
-
-  Future<void> _resetStory() async {
-    if (storyId == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Önce story seç/oluştur')),
-      );
-      return;
-    }
-    if (_resetting) return;
-    setState(() => _resetting = true);
-    try {
-      final resp = await http.post(Uri.parse('$base/stories/$storyId/reset'), headers: _headers());
-      if (resp.statusCode == 200) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Story resetlendi (votes silindi, revealed=false)')),
-        );
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Reset failed: HTTP ${resp.statusCode} ${resp.body}')),
-        );
-      }
-    } catch (err) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Reset error: $err')),
-      );
+    } catch (_) {
+      // swallow
     } finally {
-      if (mounted) setState(() => _resetting = false);
+      _socket = null;
     }
   }
 
-  Future<void> _activeNext() async {
-    final resp = await http.post(Uri.parse('$base/sessions/$code/active/next'), headers: _headers());
-    debugPrint('active/next => ${resp.statusCode} ${resp.body}');
+  /// Odaya katıl; ilk 'room_state' geldiğinde Future tamamlanır.
+  /// Sürüm farklarından etkilenmeyen, güvenli yöntem.
+  Future<Json> joinRoom(String code, {Duration timeout = const Duration(seconds: 6)}) {
+    _code = code;
+    final s = _ensureConnected();
+
+    final completer = Completer<Json>();
+
+    // İlk room_state'i yakalayıp Future'ı tamamla
+    late void Function(dynamic) handler;
+    handler = (dynamic data) {
+      _socket?.off('room_state', handler);
+      if (!completer.isCompleted) {
+        completer.complete(_toJson(data));
+      }
+    };
+
+    // Emit'ten önce handler'ı tak (yarış durumunu önle)
+    _socket?.on('room_state', handler);
+
+    // Join isteğini gönder
+    s.emit('join_room', {'code': code});
+
+    // Timeout
+    Future.delayed(timeout, () {
+      if (!completer.isCompleted) {
+        _socket?.off('room_state', handler);
+        completer.completeError(Exception('join_room timeout'));
+      }
+    });
+
+    return completer.future;
   }
 
-  Future<void> _activePrev() async {
-    final resp = await http.post(Uri.parse('$base/sessions/$code/active/prev'), headers: _headers());
-    debugPrint('active/prev => ${resp.statusCode} ${resp.body}');
-  }
+  /// Owner aksiyonları
+  void startVoting() => _emit('start_voting', {'code': _code});
+  void reveal()      => _emit('reveal',       {'code': _code});
+  void reset()       => _emit('reset',        {'code': _code});
 
-  void _vote5() {
-    if (participantId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('joined bekleniyor')),
-      );
-      return;
+  /// Katılımcı aksiyonu
+  void vote(String value) => _emit('vote', {'code': _code, 'value': value});
+
+  // ---- Helpers ----
+
+  IO.Socket _ensureConnected() {
+    final s = _socket;
+    if (s == null || s.disconnected) {
+      throw Exception('Socket not connected');
     }
-    // Gateway aktif story desteklediği için storyId olmadan da gönderebilirsin.
-    PokerSocket.I.vote(
-      code: code,
-      storyId: storyId, // null bırakılırsa aktif story kullanılacak
-      participantId: participantId!,
-      value: '5',
-    );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Vote 5 gönderildi')),
-    );
+    return s;
   }
 
-  void _reveal() {
-    debugPrint('emit reveal (code=$code)');
-    PokerSocket.I.reveal(code: code); // storyId göndermiyoruz (aktif kullanılacak)
+  void _emit(String event, [dynamic data]) {
+    final s = _ensureConnected();
+    s.emit(event, data);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final connected = PokerSocket.I.isConnected;
-    final hasParticipant = participantId != null && participantId!.isNotEmpty;
-    final hasStory = storyId != null && storyId!.isNotEmpty;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Scrum Poker')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('WS connected: $connected'),
-            Text('ParticipantId: ${participantId ?? "-"}'),
-            Text('StoryId: ${storyId ?? "-"}'),
-            const SizedBox(height: 20),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                ElevatedButton(onPressed: _createStory, child: const Text('Create Story')),
-                ElevatedButton(onPressed: _fetchStoriesAndPickLast, child: const Text('Pick Last Story')),
-                ElevatedButton(onPressed: hasParticipant ? _vote5 : null, child: const Text('Vote 5')),
-                ElevatedButton(onPressed: hasParticipant ? _reveal : null, child: const Text('Reveal')),
-                ElevatedButton(onPressed: hasStory && !_resetting ? _resetStory : null, child: const Text('Reset Story')),
-                ElevatedButton(onPressed: _activePrev, child: const Text('Prev Story')),
-                ElevatedButton(onPressed: _activeNext, child: const Text('Next Story')),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+  Json _toJson(dynamic data) {
+    if (data is Map) {
+      // anahtarları String'e normalize et
+      return data.map((k, v) => MapEntry(k.toString(), v));
+    }
+    // primitive payload ise sar
+    return {'ok': data};
   }
+
+  String _buildWsUrl({String? hostBase, String? wsBase}) {
+    // Öncelik wsBase
+    if (wsBase != null && wsBase.isNotEmpty) {
+      return _ensurePokerPath(wsBase);
+    }
+
+    // hostBase verilmişse onu kullan, yoksa Env.api (http tabanlı)
+    final base = (hostBase?.isNotEmpty ?? false) ? hostBase! : Env.api;
+
+    if (base.startsWith('ws://') || base.startsWith('wss://')) {
+      return _ensurePokerPath(base);
+    }
+
+    // http/https → ws/wss çevir
+    final httpish = (base.startsWith('http://') || base.startsWith('https://'))
+        ? base
+        : 'http://$base'; // protokol yoksa http varsay
+    final ws = httpish.replaceFirst(RegExp(r'^http'), 'ws');
+    return _ensurePokerPath(ws);
+  }
+
+  String _ensurePokerPath(String wsUrl) {
+    // '/poker' yoksa ekle
+    if (wsUrl.endsWith('/poker')) return wsUrl;
+    if (wsUrl.endsWith('/')) return '${wsUrl}poker';
+    return '$wsUrl/poker';
+  }
+
+  void _log(Object o) => print('[SOCKET] $o');
 }
