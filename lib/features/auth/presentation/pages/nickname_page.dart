@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/tokens.dart';
@@ -36,6 +37,9 @@ class _NicknamePageState extends State<NicknamePage> {
       if (!mounted) return;
       Navigator.of(context).pushNamed(Routes.createJoin);
     } catch (e) {
+      if (kDebugMode) {
+        print(e);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Sign-in failed: $e')),
