@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-
-import '../../../../core/theme/tokens.dart';
+import 'package:frontend/poker_socket.dart';
+import 'package:frontend/features/room/domain/decks.dart';
+import 'package:frontend/features/room/presentation/widgets/vote_grid.dart';
 import '../../../../core/widgets/app_button.dart';
-import '../../../../core/widgets/app_scaffold.dart';
-import '../../../../core/session/session.dart';
-import '../../../../poker_socket.dart';
+
+typedef Json = Map<String, dynamic>;
 
 class LobbyPage extends StatefulWidget {
   const LobbyPage({super.key, this.initialRoomName});
@@ -15,257 +15,220 @@ class LobbyPage extends StatefulWidget {
 }
 
 class _LobbyPageState extends State<LobbyPage> {
-  String _roomName = 'Room';
-  String _status = 'pending'; // pending | voting | revealed
-  List<_P> _participants = const [];
-  double? _average;
-
-  bool get _isOwner {
-    final me = _participants.firstWhere(
-          (p) => p.id == Session.I.participantId,
-      orElse: () => _P.none(),
-    );
-    return me.isOwner;
-  }
+  Json? _state;                    // { room, participants, round, votes?, average? }
+  String _roundStatus = 'pending'; // pending | voting | revealed
+  bool _selfHasVoted = false;
+  List<String> _deck = Decks.fibonacci;
 
   @override
   void initState() {
     super.initState();
-    _roomName = widget.initialRoomName ?? 'Room';
-
-    PokerSocket.I.onRoomState = _onRoomState;
-    PokerSocket.I.onVotingStarted = (d) {
-      setState(() => _status = (d['round']?['status'] ?? 'voting').toString());
+    final ps = PokerSocket.I;
+    ps.onRoomState = _onRoomState;
+    ps.onErrorEvent = (msg) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Hata: $msg')));
     };
-    PokerSocket.I.onRevealed = (d) {
-      final votes = (d['votes'] as List?) ?? const [];
-      setState(() {
-        _status = (d['round']?['status'] ?? 'revealed').toString();
-        _average = (d['average'] is num) ? (d['average'] as num).toDouble() : null;
-        _participants = _participants.map((p) {
-          final v = votes.cast<Map>().firstWhere(
-                (m) => m['participantId'] == p.id,
-            orElse: () => const {},
-          );
-          final value = (v['value'] ?? '').toString();
-          return p.copyWith(voteValue: value.isEmpty ? null : value);
-        }).toList();
-      });
+    ps.onVoteAck = () {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vote sent')));
     };
-    PokerSocket.I.onResetDone = (_) {
-      setState(() {
-        _status = 'pending';
-        _average = null;
-        _participants = _participants.map((p) => p.copyWith(hasVoted: false, voteValue: null)).toList();
-      });
-    };
+    ps.onParticipantSelf = (_) {/* self id geç gelebilir; bir sonraki state’te hesaplanır */};
   }
 
   @override
   void dispose() {
-    if (PokerSocket.I.onRoomState == _onRoomState) {
-      PokerSocket.I.onRoomState = null;
-    }
-    PokerSocket.I.onVotingStarted = null;
-    PokerSocket.I.onRevealed = null;
-    PokerSocket.I.onResetDone = null;
+    final ps = PokerSocket.I;
+    if (ps.onRoomState == _onRoomState) ps.onRoomState = null;
+    ps.onErrorEvent = null;
+    ps.onVoteAck = null;
+    ps.onParticipantSelf = null;
     super.dispose();
   }
 
-  void _onRoomState(Map<String, dynamic> s) {
-    final room = (s['room'] as Map?) ?? const {};
-    final participants = (s['participants'] as List?) ?? const [];
-    final round = (s['round'] as Map?) ?? const {};
-    final votes = (s['votes'] as List?) ?? const [];
+  // ---- Event handlers ----
+  void _onRoomState(Json json) {
+    final room = json['room'] as Map?;
+    final parts = (json['participants'] as List?)?.cast<Map>() ?? const <Map>[];
+    final round = json['round'] as Map?;
+    final status = (round?['status'] ?? 'pending').toString();
+
+    final deckType = room?['deckType']?.toString();
+    final selfId = PokerSocket.I.selfParticipantId;
+
+    bool selfVoted = false;
+    if (selfId != null) {
+      final me = parts.cast<Map<String, dynamic>?>().firstWhere(
+            (p) => p?['id']?.toString() == selfId,
+        orElse: () => null,
+      );
+      selfVoted = (me?['hasVoted'] == true);
+    }
 
     setState(() {
-      _roomName = (room['name'] ?? _roomName).toString();
-      _status = (round['status'] ?? _status).toString();
-
-      _participants = participants.map((m) {
-        final id = m['id']?.toString() ?? '';
-        final name = m['displayName']?.toString() ?? 'Guest';
-        final isOwner = m['isOwner'] == true;
-        final hasVoted = m['hasVoted'] == true;
-        String? voteValue;
-        final v = votes.cast<Map>().firstWhere(
-              (x) => x['participantId']?.toString() == id,
-          orElse: () => const {},
-        );
-        final vv = v['value']?.toString();
-        if (vv != null && vv.isNotEmpty) voteValue = vv;
-              return _P(id: id, name: name, isOwner: isOwner, hasVoted: hasVoted, voteValue: voteValue);
-      }).toList();
-
-      if (s['average'] is num) _average = (s['average'] as num).toDouble();
+      _state = json;
+      _roundStatus = status;
+      _selfHasVoted = selfVoted;
+      _deck = Decks.resolve(deckType);
     });
   }
 
-  void _start() => PokerSocket.I.startVoting();
-  void _reveal() => PokerSocket.I.reveal();
-  void _reset() => PokerSocket.I.reset();
-  void _vote(String v) => PokerSocket.I.vote(v);
+  // ---- Helpers ----
+  bool get _isOwner {
+    final parts = (_state?['participants'] as List?)?.cast<Map>() ?? const <Map>[];
+    final selfId = PokerSocket.I.selfParticipantId;
+    if (selfId == null) return false;
+    final me = parts.firstWhere(
+          (p) => (p['id']?.toString() == selfId),
+      orElse: () => const {},
+    );
+    return me['isOwner'] == true;
+  }
 
+  // ---- UI ----
   @override
   Widget build(BuildContext context) {
-    final title = _roomName;
-    final buttonLabel = switch (_status) {
-      'pending' => 'Start Poker Round',
-      'voting' => 'Reveal Votes',
-      'revealed' => 'Start New Vote',
-      _ => 'Start Poker Round'
-    };
-    final buttonAction = switch (_status) {
-      'pending' => _start,
-      'voting' => _reveal,
-      'revealed' => _reset,
-      _ => _start,
-    };
-    final buttonEnabled = _isOwner;
+    final participants = (_state?['participants'] as List?)?.cast<Map>() ?? const <Map>[];
 
-    final body = Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Planning Poker')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          Expanded(
-            child: ListView.separated(
-              itemCount: _participants.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.divider),
-              itemBuilder: (context, i) {
-                final p = _participants[i];
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: p.hasVoted ? Colors.green : AppColors.surfaceCard,
-                    child: Text(p.name.isNotEmpty ? p.name[0] : '?'),
-                  ),
-                  title: Text(p.name, style: const TextStyle(color: AppColors.textPrimary)),
-                  subtitle: Text(p.isOwner ? 'Host' : 'Participant',
-                      style: const TextStyle(color: AppColors.textSecondary)),
-                  trailing: (_status == 'revealed' && p.voteValue != null)
-                      ? _VoteChip(p.voteValue!)
-                      : (p.hasVoted ? const Icon(Icons.check_circle, color: Colors.green) : null),
-                  onTap: _status == 'voting' && p.id == Session.I.participantId
-                      ? () => _openVoteSheet(context)
-                      : null,
-                );
-              },
-            ),
-          ),
-
-          if (_status == 'voting') _deckQuickBar(),
-
+          _buildHeader(context),
+          const SizedBox(height: 12),
+          _buildParticipants(context, participants),
           const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(boxShadow: AppShadow.soft),
-            child: AppButton(
-              label: buttonLabel,
-              onPressed: buttonEnabled ? buttonAction : null,
-              variant: AppButtonVariant.primary,
-            ),
+          VoteGrid(
+            deck: _deck,
+            enabled: _roundStatus == 'voting' && !_selfHasVoted,
+            onSelected: (v) => PokerSocket.I.vote(v),
           ),
-          const SizedBox(height: 8),
-          if (_status == 'revealed' && _average != null)
-            Text('Average: ${_average!.toStringAsFixed(1)}',
-                style: const TextStyle(color: AppColors.textSecondary)),
+          const SizedBox(height: 24),
+          if (_roundStatus == 'revealed') _buildResults(context),
+          const SizedBox(height: 80), // CTA için altta nefes
         ],
       ),
-    );
-
-    return AppScaffold(
-      title: title,
-      body: body,
-      currentIndex: 0,
-      onNavSelected: (_) {},
-      showNav: true,
+      bottomNavigationBar: _buildPrimaryCta(context),
     );
   }
 
-  Widget _deckQuickBar() {
-    const deck = ['1','2','3','5','8','13','21','?'];
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        alignment: WrapAlignment.center,
-        children: [
-          for (final v in deck)
-            SizedBox(
-              width: 64, height: 44,
-              child: AppButton(
-                label: v,
-                onPressed: () => _vote(v),
-                variant: AppButtonVariant.secondary,
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget _buildHeader(BuildContext context) {
+    final room = _state?['room'] as Map?;
+    final code = (room?['code'] ?? '').toString();
+    final name = (room?['name'] ?? widget.initialRoomName ?? '').toString();
 
-  void _openVoteSheet(BuildContext context) {
-    const deck = ['1','2','3','5','8','13','21','?'];
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: AppColors.surface,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Wrap(
-            spacing: 12, runSpacing: 12, alignment: WrapAlignment.center,
-            children: [
-              for (final v in deck)
-                SizedBox(
-                  width: 80, height: 56,
-                  child: AppButton(
-                    label: v,
-                    onPressed: () { Navigator.pop(context); _vote(v); },
-                    variant: AppButtonVariant.primary,
-                  ),
-                ),
-            ],
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            name.isEmpty && code.isEmpty ? 'Room' : [name, code].where((e) => e.isNotEmpty).join(' • '),
+            style: Theme.of(context).textTheme.titleMedium,
           ),
         ),
-      ),
+        const SizedBox(width: 8),
+        _statusChip(),
+      ],
     );
   }
-}
 
-class _P {
-  final String id;
-  final String name;
-  final bool isOwner;
-  final bool hasVoted;
-  final String? voteValue;
-
-  const _P({
-    required this.id,
-    required this.name,
-    required this.isOwner,
-    required this.hasVoted,
-    this.voteValue,
-  });
-
-  factory _P.none() => const _P(id: '', name: '', isOwner: false, hasVoted: false);
-
-  _P copyWith({bool? hasVoted, String? voteValue}) =>
-      _P(id: id, name: name, isOwner: isOwner, hasVoted: hasVoted ?? this.hasVoted, voteValue: voteValue);
-}
-
-class _VoteChip extends StatelessWidget {
-  const _VoteChip(this.value);
-  final String value;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Text(value, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+  Widget _statusChip() {
+    final color = switch (_roundStatus) {
+      'voting' => Colors.orange,
+      'revealed' => Colors.green,
+      _ => Colors.grey,
+    };
+    return Chip(
+      label: Text(_roundStatus.toUpperCase()),
+      backgroundColor: color.withValues(alpha: .15),
+      side: BorderSide(color: color.withValues(alpha: .4)),
+      labelStyle: TextStyle(color: color.shade700),
     );
+  }
+
+  Widget _buildParticipants(BuildContext context, List<Map> parts) {
+    final style = Theme.of(context).textTheme.bodyMedium;
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: parts.map((p) {
+        final name = (p['displayName'] ?? 'Guest').toString();
+        final voted = p['hasVoted'] == true;
+        final isOwner = p['isOwner'] == true;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.black12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isOwner) const Icon(Icons.star, size: 16),
+              if (isOwner) const SizedBox(width: 6),
+              Text(name, style: style),
+              const SizedBox(width: 8),
+              Icon(
+                voted ? Icons.check_circle : Icons.radio_button_unchecked,
+                size: 16,
+                color: voted ? Colors.green : Colors.black26,
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildResults(BuildContext context) {
+    final avg = _state?['average'];
+    final votes = (_state?['votes'] as List?)?.length ?? 0;
+    if (avg == null) return const SizedBox.shrink();
+    return Text('Average: $avg ($votes votes)', style: Theme.of(context).textTheme.titleLarge);
+  }
+
+  Widget? _buildPrimaryCta(BuildContext context) {
+    if (!_isOwner) return const SizedBox.shrink();
+
+    switch (_roundStatus) {
+      case 'pending':
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: AppButton(
+              label: 'Start Poker Round',
+              variant: AppButtonVariant.primary,
+              expand: true,
+              onPressed: () => PokerSocket.I.startVoting(),
+            ),
+          ),
+        );
+      case 'voting':
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: AppButton(
+              label: 'Reveal Votes',
+              variant: AppButtonVariant.primary,
+              expand: true,
+              onPressed: () => PokerSocket.I.reveal(),
+            ),
+          ),
+        );
+      case 'revealed':
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: AppButton(
+              label: 'Start New Vote',
+              variant: AppButtonVariant.primary,
+              expand: true,
+              onPressed: () => PokerSocket.I.reset(),
+            ),
+          ),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
   }
 }

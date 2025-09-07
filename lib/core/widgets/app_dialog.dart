@@ -1,5 +1,6 @@
+// lib/core/widgets/app_dialog.dart
 import 'package:flutter/material.dart';
-import '../theme/tokens.dart';
+import '../theme/tokens.dart' hide AppButtonSize; // ❗ tokens içindeki AppButtonSize'ı gizle
 import 'app_button.dart';
 
 class AppDialog {
@@ -15,16 +16,28 @@ class AppDialog {
       builder: (_) {
         return Dialog(
           backgroundColor: AppColors.surfaceCard,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.card)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(AppSpacing.l),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 20)),
+                Text(
+                  title,
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontSize: 20),
+                ),
                 const SizedBox(height: AppSpacing.s),
-                Text(message, style: const TextStyle(color: AppColors.textSecondary)),
+                const SizedBox(height: AppSpacing.l),
+                Text(
+                  message,
+                  style: const TextStyle(color: AppColors.textSecondary),
+                ),
                 const SizedBox(height: AppSpacing.l),
                 Row(
                   children: [
@@ -32,7 +45,7 @@ class AppDialog {
                       child: AppButton(
                         label: cancelText,
                         variant: AppButtonVariant.secondary,
-                        size: AppButtonSize.medium,
+                        size: AppButtonSize.md, // ✅ medium -> md
                         onPressed: () => Navigator.of(context).pop(false),
                       ),
                     ),
@@ -41,12 +54,12 @@ class AppDialog {
                       child: AppButton(
                         label: confirmText,
                         variant: AppButtonVariant.primary,
-                        size: AppButtonSize.medium,
+                        size: AppButtonSize.md, // ✅ medium -> md
                         onPressed: () => Navigator.of(context).pop(true),
                       ),
                     ),
                   ],
-                )
+                ),
               ],
             ),
           ),

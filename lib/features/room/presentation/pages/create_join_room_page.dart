@@ -1,4 +1,7 @@
+// lib/features/room/presentation/pages/create_join_room_page.dart
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_divider_text.dart';
@@ -37,8 +40,10 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
   @override
   void initState() {
     super.initState();
-    // Token alınmışsa, WS bağlı değilse bağlan.
-    try { if (!PokerSocket.I.connected) PokerSocket.I.connect(); } catch (_) {}
+    // Token varsa ve WS bağlı değilse bağlan.
+    try {
+      if (!PokerSocket.I.connected) PokerSocket.I.connect();
+    } catch (_) {}
   }
 
   @override
@@ -50,18 +55,23 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
 
   Future<void> _onCreate() async {
     if (!_createKey.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
     setState(() => _creating = true);
     try {
       final name = _createName.text.trim();
       final code = await RoomsApi(ApiClient()).createRoom(name);
 
+      // Odaya WS ile katıl ve Lobby'e geç
       PokerSocket.I.joinRoom(code);
 
       if (!mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => LobbyPage(initialRoomName: name),
-      ));
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => LobbyPage(initialRoomName: name)),
+      );
     } catch (e) {
+      if (kDebugMode) {
+        print(e);
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Create failed: $e')),
@@ -73,18 +83,19 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
 
   Future<void> _onJoin() async {
     if (!_joinKey.currentState!.validate()) return;
+    FocusScope.of(context).unfocus();
     setState(() => _joining = true);
     try {
       final code = _joinCode.text.trim().toUpperCase();
-      final displayName = Session.I.displayName ?? 'Guest';
+      final displayName = (Session.I.displayName ?? 'Guest').trim();
 
       await RoomsApi(ApiClient()).joinRoom(code, displayName);
       PokerSocket.I.joinRoom(code);
 
       if (!mounted) return;
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => LobbyPage(initialRoomName: 'Room $code'),
-      ));
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => LobbyPage(initialRoomName: 'Room $code')),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -116,6 +127,8 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
             label: _creating ? 'Creating…' : 'Create Room',
             onPressed: _creating ? null : _onCreate,
             variant: AppButtonVariant.primary,
+            // Web’de dar alan overflow’u önlemek ve dizayna uymak için:
+            expand: true,
           ),
         ],
       ),
@@ -132,10 +145,17 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
             controller: _joinCode,
             hint: 'Room ID',
             textInputAction: TextInputAction.done,
+            // NOT: const yok!
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
+              LengthLimitingTextInputFormatter(6),
+            ],
+            textCapitalization: TextCapitalization.characters,
             validator: (v) {
               final s = (v ?? '').trim().toUpperCase();
               if (s.isEmpty) return 'Room code is required';
               if (s.length != 6) return 'Room code has 6 chars';
+              if (!RegExp(r'^[0-9A-F]{6}$').hasMatch(s)) return 'Use 0-9 A-F only';
               return null;
             },
             onSubmitted: (_) => _onJoin(),
@@ -145,27 +165,12 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
             label: _joining ? 'Joining…' : 'Join Room',
             onPressed: _joining ? null : _onJoin,
             variant: AppButtonVariant.secondary,
+            expand: true,
           ),
         ],
       ),
     );
 
-    /*final content = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: const [
-              // üstte create formu
-            ],
-          ),
-        ),
-      ),
-    );*/
-
-    // içerik (create + divider + join)
     final body = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Center(

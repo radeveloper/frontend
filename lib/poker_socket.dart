@@ -14,6 +14,8 @@ class PokerSocket {
   IO.Socket? _socket;
   String? _code;
 
+  String? selfParticipantId;
+
   bool get connected => _socket?.connected == true;
   String? get socketId => _socket?.id;
 
@@ -22,6 +24,10 @@ class PokerSocket {
   void Function(Json)? onVotingStarted;
   void Function(Json)? onRevealed;
   void Function(Json)? onResetDone;
+
+  void Function(String participantId)? onParticipantSelf;
+  void Function(String message)? onErrorEvent;
+  void Function()? onVoteAck;
 
   // joinRoom beklemesi için tek-seferlik tamamlayıcı
   Completer<Json>? _pendingRoomState;
@@ -56,6 +62,29 @@ class PokerSocket {
     _socket!.onConnectError((e) => _log('connect_error $e'));
     _socket!.onError((e) => _log('error $e'));
     _socket!.onDisconnect((_) => _log('disconnected'));
+
+    // ✅ Server genel error eventi (UI'da gösterebilmek için)
+    _socket!.on('error', (a, [b, c, d]) {
+      final raw = _firstMap(a, b, c, d) ?? a;
+      final msg = _toJson(raw)['message']?.toString() ?? raw.toString();
+      onErrorEvent?.call(msg);
+      _log('ws error: $raw');
+    });
+
+    // ✅ Oy atıldı ack
+    _socket!.on('vote_cast_ack', (a, [b, c, d]) {
+      onVoteAck?.call();
+    });
+
+    // ✅ Kendi participant id'mizi alalım
+    _socket!.on('participant_self', (a, [b, c, d]) {
+      final raw = _firstMap(a, b, c, d) ?? a;
+      final id = _toJson(raw)['participantId']?.toString();
+      if (id != null && id.isNotEmpty) {
+        selfParticipantId = id;
+        onParticipantSelf?.call(id);
+      }
+    });
 
     // Server -> Client event'leri (çok argüman gelebilir)
     _socket!.on('room_state', (a, [b, c, d]) {
