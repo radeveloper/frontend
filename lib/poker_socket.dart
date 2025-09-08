@@ -203,4 +203,21 @@ class PokerSocket {
   }
 
   void _log(Object o) => print('[SOCKET] $o');
+  void on(String event, Function(dynamic) handler) {
+    _socket?.on(event, handler);
+  }
+  void off(String event) {
+    _socket?.off(event);
+  }
+  void emit(String event, [dynamic data]) {
+    _socket?.emit(event, data);
+  }
+  /// Soketi kapatmak istersen
+  void close() {
+    try {
+      _socket?.dispose();
+      _socket?.close();
+    } catch (_) {}
+    _socket = null;
+  }
 }

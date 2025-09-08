@@ -65,8 +65,8 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
       PokerSocket.I.joinRoom(code);
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => LobbyPage(initialRoomName: name)),
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LobbyPage()),
       );
     } catch (e) {
       if (kDebugMode) {
@@ -93,8 +93,8 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> {
       PokerSocket.I.joinRoom(code);
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => LobbyPage(initialRoomName: 'Room $code')),
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const LobbyPage()),
       );
     } catch (e) {
       if (!mounted) return;
