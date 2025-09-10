@@ -19,7 +19,7 @@ class LobbyPage extends StatefulWidget {
 
 class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   bool _leaving = false;
-
+  String? _myVoteValue;
   String? _code;
   Map<String, dynamic>? _room; // {id, code, name, deckType}
   List<Map<String, dynamic>> _participants = const [];
@@ -99,7 +99,9 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   void _detachSocket() {
     final s = PokerSocket.I;
     for (final ev in ['room_state', 'participant_self', 'error', 'left_ack']) {
-      try { s.off(ev); } catch (_) {}
+      try {
+        s.off(ev);
+      } catch (_) {}
     }
   }
 
@@ -129,7 +131,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     }).length;
   }
 
-  bool get _canStartVoting => _isOwner && _status == 'pending' && _activeParticipantCount >= 2;
+  bool get _canStartVoting =>
+      _isOwner && _status == 'pending' && _activeParticipantCount >= 2;
 
   // ---------------------- Presence touch ----------------------
 
@@ -137,9 +140,12 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final code = _code;
     if (code == null) return;
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
       try {
-        (PokerSocket.I as dynamic).emit?.call('presence_touch', <String, dynamic>{'code': code});
+        (PokerSocket.I as dynamic)
+            .emit
+            ?.call('presence_touch', <String, dynamic>{'code': code});
       } catch (_) {}
     }
     super.didChangeAppLifecycleState(state);
@@ -148,7 +154,11 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   String? _tryGetRoomCode() {
     try {
       final s = PokerSocket.I as dynamic;
-      final v = s.currentCode ?? s.code ?? s.joinedCode ?? s.roomCode ?? s.currentRoomCode;
+      final v = s.currentCode ??
+          s.code ??
+          s.joinedCode ??
+          s.roomCode ??
+          s.currentRoomCode;
       if (v is String && v.trim().isNotEmpty) return v;
       return null;
     } catch (_) {
@@ -195,6 +205,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final round = (payload['round']) as Map?;
     final votes = (payload['votes'] ?? const []) as List;
     final avg = payload['average'];
+    final newStatus = (round?['status'] as String?) ?? 'pending';
 
     setState(() {
       _room = room.cast<String, dynamic>();
@@ -204,6 +215,31 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       _votes = votes.map((e) => (e as Map).cast<String, dynamic>()).toList();
       _average = (avg is num) ? avg : null;
       _code = (_room?['code'] as String?) ?? _code;
+
+      // Seçim yönetimi
+      if (newStatus == 'pending') {
+        _myVoteValue = null; // yeni tura hazırlık
+      } else if (newStatus == 'voting') {
+        // Eğer server "hasVoted=false" diyorsa seçim temizlenebilir:
+        if (_selfPid != null) {
+          final me = _participants.firstWhere(
+            (p) => p['id'] == _selfPid,
+            orElse: () => const {},
+          );
+          final hasVoted = me['hasVoted'] == true;
+          if (!hasVoted) _myVoteValue = null;
+        }
+      } else if (newStatus == 'revealed') {
+        // İstersen reveal’da kendi kartını _myVoteValue olarak set edebilirsin:
+        if (_selfPid != null) {
+          final my = _votes.firstWhere(
+            (v) => v['participantId'] == _selfPid,
+            orElse: () => const {},
+          );
+          final v = (my['value'] as String?)?.trim();
+          if (v != null && v.isNotEmpty) _myVoteValue = v;
+        }
+      }
     });
     _ensureSelfPid();
   }
@@ -214,7 +250,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final sid = Session.I.participantId;
     if (sid != null && sid.isNotEmpty) {
       final meById = _participants.firstWhere(
-            (p) => (p['id']?.toString() ?? '') == sid,
+        (p) => (p['id']?.toString() ?? '') == sid,
         orElse: () => const {},
       );
       final foundId = meById['id']?.toString();
@@ -227,7 +263,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final dn = Session.I.displayName?.trim();
     if (dn != null && dn.isNotEmpty) {
       final meByName = _participants.lastWhere(
-            (p) => (p['displayName']?.toString() ?? '') == dn,
+        (p) => (p['displayName']?.toString() ?? '') == dn,
         orElse: () => const {},
       );
       final foundId = meByName['id']?.toString();
@@ -244,8 +280,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final myPid = (_selfPid?.trim().isNotEmpty ?? false)
         ? _selfPid
         : ((Session.I.participantId?.trim().isNotEmpty ?? false)
-        ? Session.I.participantId
-        : null);
+            ? Session.I.participantId
+            : null);
 
     if (myPid != null && myPid.isNotEmpty) {
       return _participants.any((p) {
@@ -268,7 +304,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     return false;
   }
 
-
   // _participants listesi normalize edilmiş (alive) katılımcılar: { id, displayName, isOwner, ... }
   List<Map<String, dynamic>> get _eligibleTransferees {
     return _participants
@@ -277,14 +312,15 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
         .toList();
   }
 
-
   String get _status => (_round?['status'] as String?) ?? 'pending';
 
   Future<void> _touchPresenceOnce() async {
     final code = _code;
     if (code == null) return;
     try {
-      (PokerSocket.I as dynamic).emit?.call('presence_touch', <String, dynamic>{'code': code});
+      (PokerSocket.I as dynamic)
+          .emit
+          ?.call('presence_touch', <String, dynamic>{'code': code});
     } catch (_) {}
   }
 
@@ -302,20 +338,25 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
-    (PokerSocket.I as dynamic).emit?.call('reveal', <String, dynamic>{'code': code});
+    (PokerSocket.I as dynamic)
+        .emit
+        ?.call('reveal', <String, dynamic>{'code': code});
   }
 
   Future<void> _reset() async {
     await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
-    (PokerSocket.I as dynamic).emit?.call('reset', <String, dynamic>{'code': code});
+    (PokerSocket.I as dynamic)
+        .emit
+        ?.call('reset', <String, dynamic>{'code': code});
   }
 
   Future<void> _vote(String value) async {
     await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
+    setState(() => _myVoteValue = value); // <-- EKLENDİ (optimistic feedback)
     (PokerSocket.I as dynamic).emit?.call('vote', <String, dynamic>{
       'code': code,
       'value': value,
@@ -340,19 +381,21 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
               content: SizedBox(
                 width: 420,
                 child: RadioGroup<String>(
-                  groupValue: selectedId,                 // ✅ artık grupta
+                  groupValue: selectedId, // ✅ artık grupta
                   onChanged: (v) => setSt(() => selectedId = v),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('Select a participant to become the new owner:'),
+                        child: Text(
+                            'Select a participant to become the new owner:'),
                       ),
                       const SizedBox(height: 12),
                       ...options.map((p) {
                         final pid = p['id']?.toString() ?? '';
-                        final name = p['displayName']?.toString() ?? '(unknown)';
+                        final name =
+                            p['displayName']?.toString() ?? '(unknown)';
 
                         return RadioListTile<String>(
                           value: pid, // artık String
@@ -384,7 +427,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       },
     );
   }
-
 
   // ---------------------- Leave flow (geri butonu) ----------------------
 
@@ -429,10 +471,10 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     await _leaveGracefully(code, transferToParticipantId: transferToPid);
   }
 
-
   /// Tek sorumlu fonksiyon: önce graceful leave (ack bekler), sonra dialog kapatır,
   /// sayfadan çıkar ve en sonda socket’i kapatır.
-  Future _leaveGracefully(String code, {String? transferToParticipantId}) async {
+  Future _leaveGracefully(String code,
+      {String? transferToParticipantId}) async {
     if (_leaving) return;
     setState(() => _leaving = true);
 
@@ -442,37 +484,47 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
 
       if (hasLeaveRoom) {
         try {
-          await socket.leaveRoom(code, transferToParticipantId: transferToParticipantId);
+          await socket.leaveRoom(code,
+              transferToParticipantId: transferToParticipantId);
         } catch (_) {
-          await _leaveWithAckFallback(code, transferToParticipantId: transferToParticipantId);
+          await _leaveWithAckFallback(code,
+              transferToParticipantId: transferToParticipantId);
         }
       } else {
-        await _leaveWithAckFallback(code, transferToParticipantId: transferToParticipantId);
+        await _leaveWithAckFallback(code,
+            transferToParticipantId: transferToParticipantId);
       }
 
       try {
-        await _postLeave(code, transferToParticipantId: transferToParticipantId);
+        await _postLeave(code,
+            transferToParticipantId: transferToParticipantId);
       } catch (_) {}
 
       _dismissAnyDialog();
       if (mounted) {
         Navigator.of(context).maybePop();
       }
-      try { socket.disconnect?.call(); } catch (_) {}
+      try {
+        socket.disconnect?.call();
+      } catch (_) {}
     } finally {
       if (mounted) setState(() => _leaving = false);
     }
   }
 
-
   /// Fallback: 'leave_room' emit edip 'left_ack' bekler (maks 6 sn).
-  Future _leaveWithAckFallback(String code, {String? transferToParticipantId}) async {
+  Future _leaveWithAckFallback(String code,
+      {String? transferToParticipantId}) async {
     final s = PokerSocket.I as dynamic;
 
     final completer = Completer<void>();
     void offAll() {
-      try { s.off?.call('left_ack'); } catch (_) {}
-      try { s.off?.call('error'); } catch (_) {}
+      try {
+        s.off?.call('left_ack');
+      } catch (_) {}
+      try {
+        s.off?.call('error');
+      } catch (_) {}
     }
 
     s.on?.call('left_ack', (_) {
@@ -493,7 +545,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     try {
       s.emit?.call('leave_room', {
         'code': code,
-        if (transferToParticipantId != null) 'transferToParticipantId': transferToParticipantId,
+        if (transferToParticipantId != null)
+          'transferToParticipantId': transferToParticipantId,
       });
     } catch (_) {}
 
@@ -510,7 +563,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     }
     await ApiClient().post('/api/v1/rooms/$code/leave', body);
   }
-
 
   void _dismissAnyDialog() {
     // Eğer dialog hâlâ açıksa kapat
@@ -606,12 +658,17 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                   onPressed: _canStartVoting ? _startVoting : null,
                   child: const Text('Start voting'),
                 ),
-              if (_isOwner && _status == 'pending' && _activeParticipantCount < 2)
+              if (_isOwner &&
+                  _status == 'pending' &&
+                  _activeParticipantCount < 2)
                 Padding(
                   padding: const EdgeInsets.only(top: 8.0),
                   child: Text(
                     'Start için en az 2 aktif katılımcı gerekli',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: Colors.grey),
                   ),
                 ),
               if (status == 'voting') ...[
@@ -633,6 +690,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                 _VoteGrid(
                   deckType: (_room?['deckType'] ?? 'fibonacci').toString(),
                   onVote: _vote,
+                  selectedValue: _myVoteValue,
+                  enabled: _status == 'voting',
                 ),
               ],
 
@@ -660,8 +719,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                   runSpacing: 8,
                   children: _votes
                       .map((v) => Chip(
-                    label: Text('${v['participantId']}: ${v['value']}'),
-                  ))
+                            label: Text('${v['participantId']}: ${v['value']}'),
+                          ))
                       .toList(),
                 ),
               ],
@@ -685,10 +744,17 @@ class _Loading extends StatelessWidget {
 /// Basit oy kartları – tasarım bileşeninle değiştirebilirsin.
 /// deckType: 'fibonacci' için klasik dizi.
 class _VoteGrid extends StatelessWidget {
-  const _VoteGrid({required this.deckType, required this.onVote});
+  const _VoteGrid({
+    required this.deckType,
+    required this.onVote,
+    this.selectedValue,
+    this.enabled = true,
+  });
 
   final String deckType;
   final void Function(String value) onVote;
+  final String? selectedValue;
+  final bool enabled;
 
   List<String> get _values {
     switch (deckType) {
@@ -705,14 +771,35 @@ class _VoteGrid extends StatelessWidget {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: _values
-          .map(
-            (v) => OutlinedButton(
-          onPressed: () => onVote(v),
-          child: Text(v),
-        ),
-      )
-          .toList(),
+      children: _values.map((v) {
+        final bool isSelected = (selectedValue != null && selectedValue == v);
+        return OutlinedButton(
+          onPressed: enabled ? () => onVote(v) : null,
+          style: OutlinedButton.styleFrom(
+            // İsterseniz seçili butonun kenar çizgisini de beyaz yapabilirsiniz
+            side: isSelected ? const BorderSide(color: Colors.white) : null,
+            // Arka plan rengini değiştirmek isterseniz burada verebilirsiniz
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check,
+                size: 16,
+                // Seçili değilse default renk, seçili ise beyaz
+                color: isSelected ? Colors.white : null,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                v,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : null,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }
