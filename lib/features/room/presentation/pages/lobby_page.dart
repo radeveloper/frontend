@@ -1,4 +1,5 @@
 // lib/features/room/presentation/pages/lobby_page.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 
@@ -80,13 +81,25 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
           : err.toString();
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     });
+
+    // Fallback senaryosu için left_ack yakalayalım (leaveRoom yoksa kullanılacak)
+    s.on('left_ack', (_) async {
+      // Dialog açık kalırsa kapat
+      _dismissAnyDialog();
+      // Sayfadan çık
+      if (mounted) Navigator.of(context).maybePop();
+      // En sonda socket kapat
+      try {
+        (PokerSocket.I as dynamic).disconnect?.call();
+      } catch (_) {}
+    });
   }
 
   void _detachSocket() {
     final s = PokerSocket.I;
-    try { s.off('room_state'); } catch (_) {}
-    try { s.off('participant_self'); } catch (_) {}
-    try { s.off('error'); } catch (_) {}
+    for (final ev in ['room_state', 'participant_self', 'error', 'left_ack']) {
+      try { s.off(ev); } catch (_) {}
+    }
   }
 
   int get _activeParticipantCount {
@@ -206,7 +219,16 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
 
   String get _status => (_round?['status'] as String?) ?? 'pending';
 
+  Future<void> _touchPresenceOnce() async {
+    final code = _code;
+    if (code == null) return;
+    try {
+      (PokerSocket.I as dynamic).emit?.call('presence_touch', <String, dynamic>{'code': code});
+    } catch (_) {}
+  }
+
   Future<void> _startVoting() async {
+    await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
     (PokerSocket.I as dynamic).emit?.call('start_voting', <String, dynamic>{
@@ -216,18 +238,21 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   }
 
   Future<void> _reveal() async {
+    await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
     (PokerSocket.I as dynamic).emit?.call('reveal', <String, dynamic>{'code': code});
   }
 
   Future<void> _reset() async {
+    await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
     (PokerSocket.I as dynamic).emit?.call('reset', <String, dynamic>{'code': code});
   }
 
   Future<void> _vote(String value) async {
+    await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
     (PokerSocket.I as dynamic).emit?.call('vote', <String, dynamic>{
@@ -256,59 +281,99 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     );
     if (confirm != true) return;
 
+    await _leaveGracefully(code);
+  }
+
+  /// Tek sorumlu fonksiyon: önce graceful leave (ack bekler), sonra dialog kapatır,
+  /// sayfadan çıkar ve en sonda socket’i kapatır.
+  Future<void> _leaveGracefully(String code) async {
+    if (_leaving) return;
     setState(() => _leaving = true);
 
-    var leaveSucceeded = false;
     try {
-      await _postLeave(code);
-      leaveSucceeded = true;
-    } catch (e) {
-      // owner transfer zorunluluğu olabilir
-      final msg = e.toString().toLowerCase();
-      final needsTransfer = msg.contains('owner must transfer');
+      // 1) Varsaysa PokerSocket.leaveRoom kullan
+      final socket = PokerSocket.I as dynamic;
+      final hasLeaveRoom = (socket.leaveRoom is Function);
 
-      if (!needsTransfer) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Leave failed: $e')),
-          );
+      if (hasLeaveRoom) {
+        try {
+          await socket.leaveRoom(code); // left_ack ile tamamlanır
+        } catch (_) {
+          // düşerse fallback’e geç
+          await _leaveWithAckFallback(code);
         }
-        setState(() => _leaving = false);
-        return;
+      } else {
+        // 2) Fallback: left_ack bekleyen emit + timeout
+        await _leaveWithAckFallback(code);
       }
 
-      final transferee = await _pickTransferee(code);
-      if (transferee == null) {
-        setState(() => _leaving = false);
-        return;
-      }
-
+      // 3) (Emniyet kemeri) REST leave — backend zaten WS ile yaptı ama
+      //    UI senkronizasyonu için fail-safe tutuyoruz (idempotent).
       try {
-        await _postLeave(code, transferToParticipantId: transferee);
-        leaveSucceeded = true;
-      } catch (e2) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Leave failed: $e2')),
-          );
-        }
-        setState(() => _leaving = false);
-        return;
+        await _postLeave(code);
+      } catch (_) {
+        // görmezden gel
       }
+
+      // 4) Dialog’u kapat (açıksa)
+      _dismissAnyDialog();
+
+      // 5) Sayfadan çık
+      if (mounted) {
+        Navigator.of(context).maybePop();
+      }
+
+      // 6) En sonda socket kapat
+      try {
+        socket.disconnect?.call();
+      } catch (_) {}
+
     } finally {
-      if (leaveSucceeded) {
-        try {
-          (PokerSocket.I as dynamic).emit?.call('leave_room', <String, dynamic>{'code': code});
-        } catch (_) {}
-        try {
-          (PokerSocket.I as dynamic)._socket?.close?.call();
-        } catch (_) {}
-        if (mounted) {
-          setState(() => _leaving = false);
-          Navigator.of(context).maybePop();
-        }
-      }
+      if (mounted) setState(() => _leaving = false);
     }
+  }
+
+  /// Fallback: 'leave_room' emit edip 'left_ack' bekler (maks 6 sn).
+  Future<void> _leaveWithAckFallback(String code) async {
+    final s = PokerSocket.I as dynamic;
+
+    final completer = Completer<void>();
+    void offAll() {
+      try { s.off?.call('left_ack'); } catch (_) {}
+      try { s.off?.call('error'); } catch (_) {}
+    }
+
+    s.on?.call('left_ack', (_) {
+      if (!completer.isCompleted) completer.complete();
+      offAll();
+    });
+
+    s.on?.call('error', (data) {
+      if (data is Map && data['code'] == 'LEAVE_FAILED') {
+        if (!completer.isCompleted) {
+          completer.completeError(Exception(data['message'] ?? 'leave failed'));
+        }
+        offAll();
+      }
+    });
+
+    // İsteği gönder
+    try { s.emit?.call('leave_room', <String, dynamic>{'code': code}); } catch (_) {}
+
+    // Zaman aşımı: fail-closed (UI ilerlesin)
+    await completer.future.timeout(const Duration(seconds: 6), onTimeout: () {
+      if (!completer.isCompleted) completer.complete();
+      offAll();
+    });
+  }
+
+  void _dismissAnyDialog() {
+    // Eğer dialog hâlâ açıksa kapat
+    try {
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    } catch (_) {}
   }
 
   Future<void> _postLeave(String code, {String? transferToParticipantId}) async {
@@ -317,64 +382,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       body['transferToParticipantId'] = transferToParticipantId;
     }
     await ApiClient().post('/api/v1/rooms/$code/leave', body);
-  }
-
-  Future<String?> _pickTransferee(String code) async {
-    final room = await _fetchRoom(code);
-    if (!mounted) return null;
-
-    final participants =
-    (room['participants'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-
-    final candidates = participants
-        .where((p) => (p['isOwner'] != true) && (p['leftAt'] == null))
-        .toList();
-
-    if (candidates.isEmpty) {
-      if (!mounted) return null;
-      await AppDialog.confirm(
-        context,
-        title: 'No transferee',
-        message: 'No other participants to transfer ownership.',
-        confirmText: 'OK',
-        cancelText: 'Cancel',
-      );
-      return null;
-    }
-
-    if (!mounted) return null;
-    return await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: AppSectionHeader(title: 'Transfer ownership to'),
-              ),
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: candidates.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final p = candidates[i];
-                    return ListTile(
-                      title: Text(p['displayName']?.toString() ?? 'Unknown'),
-                      onTap: () => Navigator.of(ctx).pop(p['id']?.toString()),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   // ---------------------- UI ----------------------

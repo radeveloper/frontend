@@ -29,6 +29,7 @@ class PokerSocket {
 
   // joinRoom beklemesi için tek-seferlik tamamlayıcı
   Completer<Json>? _pendingRoomState;
+  Completer<void>? _leftCompleter;
 
   /// WS bağlantısını kurar.
   /// - [hostBase]: 'http://192.168.1.23:3000' gibi (buradan ws URL türetilir)
@@ -154,6 +155,36 @@ class PokerSocket {
     return _pendingRoomState!.future.timeout(timeout, onTimeout: () {
       _pendingRoomState = null;
       throw Exception('join_room timeout');
+    });
+  }
+  Future<void> leaveRoom(String code, {Duration timeout = const Duration(seconds: 6)}) async {
+    final s = _ensureConnected();
+    _leftCompleter = Completer<void>();
+
+    // left_ack geldiğinde tamamla
+    s.once('left_ack', (_) {
+      if (!(_leftCompleter?.isCompleted ?? true)) {
+        _leftCompleter?.complete();
+      }
+    });
+
+    // Hata gelirse de tamamla (UI kapanabilsin)
+    s.once('error', (data) {
+      if (data is Map && data['code'] == 'LEAVE_FAILED') {
+        if (!(_leftCompleter?.isCompleted ?? true)) {
+          _leftCompleter?.completeError(Exception(data['message'] ?? 'leave failed'));
+        }
+      }
+    });
+
+    // İsteği gönder
+    emit('leave_room', {'code': code});
+
+    // Zaman aşımı
+    return _leftCompleter!.future.timeout(timeout, onTimeout: () {
+      if (!(_leftCompleter?.isCompleted ?? true)) {
+        _leftCompleter?.complete(); // fail-closed: yine de UI’ı kapatalım
+      }
     });
   }
 
