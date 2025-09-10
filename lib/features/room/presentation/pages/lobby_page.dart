@@ -89,6 +89,33 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     try { s.off('error'); } catch (_) {}
   }
 
+  int get _activeParticipantCount {
+    final now = DateTime.now();
+    const grace = Duration(seconds: 30);
+
+    return _participants.where((p) {
+      // Ayrılanları çıkar
+      final leftAt = p['leftAt'];
+      if (leftAt != null) return false;
+
+      // lastSeenAt kontrolü (ISO string veya DateTime olabilir)
+      final raw = p['lastSeenAt'];
+      DateTime? lastSeen;
+      if (raw is String) {
+        lastSeen = DateTime.tryParse(raw);
+      } else if (raw is DateTime) {
+        lastSeen = raw;
+      }
+
+      if (lastSeen != null && now.difference(lastSeen) > grace) {
+        return false; // çevrimdışı say
+      }
+
+      return true; // aktif
+    }).length;
+  }
+
+  bool get _canStartVoting => _isOwner && _status == 'pending' && _activeParticipantCount >= 2;
 
   // ---------------------- Presence touch ----------------------
 
@@ -432,10 +459,17 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
 
               if (status == 'pending' && _isOwner)
                 FilledButton(
-                  onPressed: _startVoting,
+                  onPressed: _canStartVoting ? _startVoting : null,
                   child: const Text('Start voting'),
                 ),
-
+              if (_isOwner && _status == 'pending' && _activeParticipantCount < 2)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0),
+                  child: Text(
+                    'Start için en az 2 aktif katılımcı gerekli',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                  ),
+                ),
               if (status == 'voting') ...[
                 if (_isOwner)
                   Row(

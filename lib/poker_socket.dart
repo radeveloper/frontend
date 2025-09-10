@@ -10,14 +10,12 @@ typedef Json = Map<String, dynamic>;
 class PokerSocket {
   PokerSocket._();
   static final PokerSocket I = PokerSocket._();
-
   IO.Socket? _socket;
   String? _code;
-
   String? selfParticipantId;
-
   bool get connected => _socket?.connected == true;
   String? get socketId => _socket?.id;
+  Timer? _presenceTimer;
 
   // UI katmanı için callback'ler
   void Function(Json)? onRoomState;
@@ -109,10 +107,22 @@ class PokerSocket {
     });
 
     _socket!.connect();
+    // Heartbeat başlat (10 sn’de bir)
+    _startPresenceHeartbeat();
   }
-
+  void _startPresenceHeartbeat() {
+    _presenceTimer?.cancel();
+    _presenceTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      final code = _code;
+      if (connected && (code?.isNotEmpty ?? false)) {
+        emit('presence_touch', {'code': code});
+      }
+    });
+  }
   void disconnect() {
     try {
+      _presenceTimer?.cancel();
+      _presenceTimer = null;
       _pendingRoomState = null;
       _socket?.off('room_state');
       _socket?.off('voting_started');
@@ -135,6 +145,8 @@ class PokerSocket {
 
     // varsa önceki beklemeyi iptal et
     _pendingRoomState = Completer<Json>();
+    // İlk dokunuş (join ile aynı anda)
+    emit('presence_touch', {'code': code});
 
     // Join isteğini gönder (ack bağımlılığı yok)
     s.emit('join_room', {'code': code});
