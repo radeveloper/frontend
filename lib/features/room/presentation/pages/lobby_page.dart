@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../../../core/network/api_client.dart';
+import '../../../../core/session/session.dart';
 import '../../../../core/widgets/app_dialog.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/app_section_header.dart';
@@ -204,18 +205,78 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       _average = (avg is num) ? avg : null;
       _code = (_room?['code'] as String?) ?? _code;
     });
+    _ensureSelfPid();
+  }
+
+  void _ensureSelfPid() {
+    if (_selfPid != null && _selfPid!.isNotEmpty) return;
+
+    final sid = Session.I.participantId;
+    if (sid != null && sid.isNotEmpty) {
+      final meById = _participants.firstWhere(
+            (p) => (p['id']?.toString() ?? '') == sid,
+        orElse: () => const {},
+      );
+      final foundId = meById['id']?.toString();
+      if (foundId != null && foundId.isNotEmpty) {
+        setState(() => _selfPid = foundId);
+        return;
+      }
+    }
+
+    final dn = Session.I.displayName?.trim();
+    if (dn != null && dn.isNotEmpty) {
+      final meByName = _participants.lastWhere(
+            (p) => (p['displayName']?.toString() ?? '') == dn,
+        orElse: () => const {},
+      );
+      final foundId = meByName['id']?.toString();
+      if (foundId != null && foundId.isNotEmpty) {
+        setState(() => _selfPid = foundId);
+      }
+    }
   }
 
   // ---------------------- Actions ----------------------
 
   bool get _isOwner {
-    if (_selfPid == null) return false;
-    final me = _participants.firstWhere(
-          (p) => p['id'] == _selfPid,
-      orElse: () => const {},
-    );
-    return me['isOwner'] == true;
+    // Öncelikle kendimizi tespit edebildiğimiz en güvenilir id
+    final myPid = (_selfPid?.trim().isNotEmpty ?? false)
+        ? _selfPid
+        : ((Session.I.participantId?.trim().isNotEmpty ?? false)
+        ? Session.I.participantId
+        : null);
+
+    if (myPid != null && myPid.isNotEmpty) {
+      return _participants.any((p) {
+        final pid = p['id']?.toString() ?? '';
+        final isOwner = p['isOwner'] == true;
+        return pid == myPid && isOwner;
+      });
+    }
+
+    // Son çare: displayName ile eşle
+    final dn = Session.I.displayName?.trim();
+    if (dn != null && dn.isNotEmpty) {
+      return _participants.any((p) {
+        final name = p['displayName']?.toString() ?? '';
+        final isOwner = p['isOwner'] == true;
+        return name == dn && isOwner;
+      });
+    }
+
+    return false;
   }
+
+
+  // _participants listesi normalize edilmiş (alive) katılımcılar: { id, displayName, isOwner, ... }
+  List<Map<String, dynamic>> get _eligibleTransferees {
+    return _participants
+        .where((p) => p['isOwner'] != true) // owner dışındakiler
+        .map((e) => (e as Map).cast<String, dynamic>())
+        .toList();
+  }
+
 
   String get _status => (_round?['status'] as String?) ?? 'pending';
 
@@ -261,9 +322,73 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     });
   }
 
+  Future<String?> _pickTransfereeDialog(BuildContext context) async {
+    final options = _eligibleTransferees;
+    if (options.isEmpty) return null;
+
+    String? initial = options.first['id']?.toString();
+
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSt) {
+            String? selectedId = initial;
+
+            return AlertDialog(
+              title: const Text('Transfer ownership'),
+              content: SizedBox(
+                width: 420,
+                child: RadioGroup<String>(
+                  groupValue: selectedId,                 // ✅ artık grupta
+                  onChanged: (v) => setSt(() => selectedId = v),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('Select a participant to become the new owner:'),
+                      ),
+                      const SizedBox(height: 12),
+                      ...options.map((p) {
+                        final pid = p['id']?.toString() ?? '';
+                        final name = p['displayName']?.toString() ?? '(unknown)';
+
+                        return RadioListTile<String>(
+                          value: pid, // artık String
+                          title: Text(name),
+                          subtitle: (p['isOnline'] == true)
+                              ? const Text('online')
+                              : const Text('offline'),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(null),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: selectedId == null
+                      ? null
+                      : () => Navigator.of(ctx).pop(selectedId),
+                  child: const Text('Transfer & Leave'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+
   // ---------------------- Leave flow (geri butonu) ----------------------
 
-  Future<void> _handleBack() async {
+  Future _handleBack() async {
     if (_leaving) return;
 
     final code = _code;
@@ -272,6 +397,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       return;
     }
 
+    // Basit onay
     final confirm = await AppDialog.confirm(
       context,
       title: 'Leave room?',
@@ -281,60 +407,66 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     );
     if (confirm != true) return;
 
-    await _leaveGracefully(code);
+    // Eğer owner’san ve devralacak katılımcı varsa, seçim iste
+    String? transferToPid;
+    if (_isOwner) {
+      final transferees = _eligibleTransferees;
+      if (transferees.isNotEmpty) {
+        // Tek kişi varsa otomatik seç
+        if (transferees.length == 1) {
+          transferToPid = transferees.first['id']?.toString();
+        } else {
+          transferToPid = await _pickTransfereeDialog(context);
+          if (transferToPid == null) {
+            // Kullanıcı vazgeçti
+            return;
+          }
+        }
+      }
+      // Not: transferees boşsa (owner tek kişi ise) transfer gerekmeyecek.
+    }
+
+    await _leaveGracefully(code, transferToParticipantId: transferToPid);
   }
+
 
   /// Tek sorumlu fonksiyon: önce graceful leave (ack bekler), sonra dialog kapatır,
   /// sayfadan çıkar ve en sonda socket’i kapatır.
-  Future<void> _leaveGracefully(String code) async {
+  Future _leaveGracefully(String code, {String? transferToParticipantId}) async {
     if (_leaving) return;
     setState(() => _leaving = true);
 
     try {
-      // 1) Varsaysa PokerSocket.leaveRoom kullan
       final socket = PokerSocket.I as dynamic;
       final hasLeaveRoom = (socket.leaveRoom is Function);
 
       if (hasLeaveRoom) {
         try {
-          await socket.leaveRoom(code); // left_ack ile tamamlanır
+          await socket.leaveRoom(code, transferToParticipantId: transferToParticipantId);
         } catch (_) {
-          // düşerse fallback’e geç
-          await _leaveWithAckFallback(code);
+          await _leaveWithAckFallback(code, transferToParticipantId: transferToParticipantId);
         }
       } else {
-        // 2) Fallback: left_ack bekleyen emit + timeout
-        await _leaveWithAckFallback(code);
+        await _leaveWithAckFallback(code, transferToParticipantId: transferToParticipantId);
       }
 
-      // 3) (Emniyet kemeri) REST leave — backend zaten WS ile yaptı ama
-      //    UI senkronizasyonu için fail-safe tutuyoruz (idempotent).
       try {
-        await _postLeave(code);
-      } catch (_) {
-        // görmezden gel
-      }
+        await _postLeave(code, transferToParticipantId: transferToParticipantId);
+      } catch (_) {}
 
-      // 4) Dialog’u kapat (açıksa)
       _dismissAnyDialog();
-
-      // 5) Sayfadan çık
       if (mounted) {
         Navigator.of(context).maybePop();
       }
-
-      // 6) En sonda socket kapat
-      try {
-        socket.disconnect?.call();
-      } catch (_) {}
-
+      try { socket.disconnect?.call(); } catch (_) {}
     } finally {
       if (mounted) setState(() => _leaving = false);
     }
   }
 
+
   /// Fallback: 'leave_room' emit edip 'left_ack' bekler (maks 6 sn).
-  Future<void> _leaveWithAckFallback(String code) async {
+  Future _leaveWithAckFallback(String code, {String? transferToParticipantId}) async {
     final s = PokerSocket.I as dynamic;
 
     final completer = Completer<void>();
@@ -357,15 +489,28 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       }
     });
 
-    // İsteği gönder
-    try { s.emit?.call('leave_room', <String, dynamic>{'code': code}); } catch (_) {}
+    // İsteği gönder —>> transferToParticipantId'yi ilet
+    try {
+      s.emit?.call('leave_room', {
+        'code': code,
+        if (transferToParticipantId != null) 'transferToParticipantId': transferToParticipantId,
+      });
+    } catch (_) {}
 
-    // Zaman aşımı: fail-closed (UI ilerlesin)
     await completer.future.timeout(const Duration(seconds: 6), onTimeout: () {
       if (!completer.isCompleted) completer.complete();
       offAll();
     });
   }
+
+  Future _postLeave(String code, {String? transferToParticipantId}) async {
+    final body = <String, dynamic>{};
+    if (transferToParticipantId != null) {
+      body['transferToParticipantId'] = transferToParticipantId;
+    }
+    await ApiClient().post('/api/v1/rooms/$code/leave', body);
+  }
+
 
   void _dismissAnyDialog() {
     // Eğer dialog hâlâ açıksa kapat
@@ -374,14 +519,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
         Navigator.of(context, rootNavigator: true).pop();
       }
     } catch (_) {}
-  }
-
-  Future<void> _postLeave(String code, {String? transferToParticipantId}) async {
-    final body = <String, dynamic>{};
-    if (transferToParticipantId != null) {
-      body['transferToParticipantId'] = transferToParticipantId;
-    }
-    await ApiClient().post('/api/v1/rooms/$code/leave', body);
   }
 
   // ---------------------- UI ----------------------

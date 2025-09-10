@@ -157,7 +157,11 @@ class PokerSocket {
       throw Exception('join_room timeout');
     });
   }
-  Future<void> leaveRoom(String code, {Duration timeout = const Duration(seconds: 6)}) async {
+  Future leaveRoom(
+      String code, {
+        String? transferToParticipantId,
+        Duration timeout = const Duration(seconds: 6),
+      }) async {
     final s = _ensureConnected();
     _leftCompleter = Completer<void>();
 
@@ -177,13 +181,16 @@ class PokerSocket {
       }
     });
 
-    // İsteği gönder
-    emit('leave_room', {'code': code});
+    // İsteği gönder —>> transferToParticipantId'yi ilet
+    emit('leave_room', {
+      'code': code,
+      if (transferToParticipantId != null) 'transferToParticipantId': transferToParticipantId,
+    });
 
     // Zaman aşımı
     return _leftCompleter!.future.timeout(timeout, onTimeout: () {
       if (!(_leftCompleter?.isCompleted ?? true)) {
-        _leftCompleter?.complete(); // fail-closed: yine de UI’ı kapatalım
+        _leftCompleter?.complete(); // fail-closed
       }
     });
   }
