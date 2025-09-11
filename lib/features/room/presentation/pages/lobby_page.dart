@@ -223,7 +223,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
         // Eğer server "hasVoted=false" diyorsa seçim temizlenebilir:
         if (_selfPid != null) {
           final me = _participants.firstWhere(
-            (p) => p['id'] == _selfPid,
+                (p) => p['id'] == _selfPid,
             orElse: () => const {},
           );
           final hasVoted = me['hasVoted'] == true;
@@ -233,7 +233,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
         // İstersen reveal’da kendi kartını _myVoteValue olarak set edebilirsin:
         if (_selfPid != null) {
           final my = _votes.firstWhere(
-            (v) => v['participantId'] == _selfPid,
+                (v) => v['participantId'] == _selfPid,
             orElse: () => const {},
           );
           final v = (my['value'] as String?)?.trim();
@@ -250,7 +250,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final sid = Session.I.participantId;
     if (sid != null && sid.isNotEmpty) {
       final meById = _participants.firstWhere(
-        (p) => (p['id']?.toString() ?? '') == sid,
+            (p) => (p['id']?.toString() ?? '') == sid,
         orElse: () => const {},
       );
       final foundId = meById['id']?.toString();
@@ -263,7 +263,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final dn = Session.I.displayName?.trim();
     if (dn != null && dn.isNotEmpty) {
       final meByName = _participants.lastWhere(
-        (p) => (p['displayName']?.toString() ?? '') == dn,
+            (p) => (p['displayName']?.toString() ?? '') == dn,
         orElse: () => const {},
       );
       final foundId = meByName['id']?.toString();
@@ -280,8 +280,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final myPid = (_selfPid?.trim().isNotEmpty ?? false)
         ? _selfPid
         : ((Session.I.participantId?.trim().isNotEmpty ?? false)
-            ? Session.I.participantId
-            : null);
+        ? Session.I.participantId
+        : null);
 
     if (myPid != null && myPid.isNotEmpty) {
       return _participants.any((p) {
@@ -367,21 +367,22 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final options = _eligibleTransferees;
     if (options.isEmpty) return null;
 
-    String? initial = options.first['id']?.toString();
+    final String? initial = options.first['id']?.toString();
 
     return showDialog<String>(
       context: context,
       builder: (ctx) {
+        // 🔧 FIX: Seçim state’ini StatefulBuilder DIŞINDA tut
+        String? selectedId = initial;
+
         return StatefulBuilder(
           builder: (ctx, setSt) {
-            String? selectedId = initial;
-
             return AlertDialog(
               title: const Text('Transfer ownership'),
               content: SizedBox(
                 width: 420,
                 child: RadioGroup<String>(
-                  groupValue: selectedId, // ✅ artık grupta
+                  groupValue: selectedId, // grup state’i burada
                   onChanged: (v) => setSt(() => selectedId = v),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -398,7 +399,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                             p['displayName']?.toString() ?? '(unknown)';
 
                         return RadioListTile<String>(
-                          value: pid, // artık String
+                          value: pid, // yalnızca value (RadioGroup yönetiyor)
                           title: Text(name),
                           subtitle: (p['isOnline'] == true)
                               ? const Text('online')
@@ -440,6 +441,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     }
 
     // Basit onay
+    // ...
     final confirm = await AppDialog.confirm(
       context,
       title: 'Leave room?',
@@ -447,6 +449,9 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       confirmText: 'Leave',
       cancelText: 'Stay',
     );
+
+    if (!mounted) return;
+
     if (confirm != true) return;
 
     // Eğer owner’san ve devralacak katılımcı varsa, seçim iste
@@ -458,12 +463,16 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
         if (transferees.length == 1) {
           transferToPid = transferees.first['id']?.toString();
         } else {
-          transferToPid = await _pickTransfereeDialog(context);
+          // ⛳️ LINT FIX: async gap sonrası context kullanımı guard edildi
+          final result = await _pickTransfereeDialog(context); // <-- ASENKRON BOŞLUK BURADA
+          if (!mounted) return; // <-- BU SATIR ÇÖZÜM
+          transferToPid = result;
           if (transferToPid == null) {
             // Kullanıcı vazgeçti
             return;
           }
         }
+
       }
       // Not: transferees boşsa (owner tek kişi ise) transfer gerekmeyecek.
     }
@@ -565,6 +574,9 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   }
 
   void _dismissAnyDialog() {
+    // async gap'lerden sonra çağrılma ihtimaline karşı guard eklendi
+    if (!mounted) return;
+
     // Eğer dialog hâlâ açıksa kapat
     try {
       if (Navigator.of(context, rootNavigator: true).canPop()) {
@@ -719,8 +731,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                   runSpacing: 8,
                   children: _votes
                       .map((v) => Chip(
-                            label: Text('${v['participantId']}: ${v['value']}'),
-                          ))
+                    label: Text('${v['participantId']}: ${v['value']}'),
+                  ))
                       .toList(),
                 ),
               ],
@@ -776,9 +788,7 @@ class _VoteGrid extends StatelessWidget {
         return OutlinedButton(
           onPressed: enabled ? () => onVote(v) : null,
           style: OutlinedButton.styleFrom(
-            // İsterseniz seçili butonun kenar çizgisini de beyaz yapabilirsiniz
             side: isSelected ? const BorderSide(color: Colors.white) : null,
-            // Arka plan rengini değiştirmek isterseniz burada verebilirsiniz
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -786,7 +796,6 @@ class _VoteGrid extends StatelessWidget {
               Icon(
                 Icons.check,
                 size: 16,
-                // Seçili değilse default renk, seçili ise beyaz
                 color: isSelected ? Colors.white : null,
               ),
               const SizedBox(width: 6),
