@@ -1,76 +1,60 @@
 import 'package:flutter/material.dart';
 
 class VoteGrid extends StatelessWidget {
+  final String deckType;
+  final void Function(String value) onVote;
+  final String? selectedValue;
+  final bool enabled;
+
   const VoteGrid({
     super.key,
-    required this.deck,
-    required this.enabled,
-    required this.onSelected,
+    required this.deckType,
+    required this.onVote,
+    this.selectedValue,
+    this.enabled = true,
   });
 
-  final List<String> deck;
-  final bool enabled;
-  final ValueChanged<String> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return AbsorbPointer(
-      absorbing: !enabled,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.5,
-        child: LayoutBuilder(
-          builder: (context, c) {
-            final w = c.maxWidth;
-            final cross = w >= 900 ? 8 : w >= 600 ? 6 : 4;
-            return GridView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: cross,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1.2,
-              ),
-              itemCount: deck.length,
-              itemBuilder: (context, i) {
-                final value = deck[i];
-                return _VoteCard(
-                  label: value,
-                  onTap: () => onSelected(value),
-                );
-              },
-            );
-          },
-        ),
-      ),
-    );
+  List<String> get _values {
+    switch (deckType) {
+      case 'tshirt':
+        return const ['XS', 'S', 'M', 'L', 'XL', '?'];
+      case 'fibonacci':
+      default:
+        return const ['0', '1/2', '1', '2', '3', '5', '8', '13', '?'];
+    }
   }
-}
-
-class _VoteCard extends StatelessWidget {
-  const _VoteCard({required this.label, required this.onTap});
-  final String label;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Material(
-      color: cs.surface,
-      surfaceTintColor: cs.surfaceTint,
-      elevation: 1,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Center(
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.titleLarge,
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _values.map((v) {
+        final bool isSelected = selectedValue == v;
+        return OutlinedButton(
+          onPressed: enabled ? () => onVote(v) : null,
+          style: OutlinedButton.styleFrom(
+            side: isSelected ? const BorderSide(color: Colors.white) : null,
           ),
-        ),
-      ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.check,
+                size: 16,
+                color: isSelected ? Colors.white : null,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                v,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : null,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }

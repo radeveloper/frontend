@@ -101,6 +101,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     for (final ev in ['room_state', 'participant_self', 'error', 'left_ack']) {
       try {
         s.off(ev);
+
       } catch (_) {}
     }
   }
