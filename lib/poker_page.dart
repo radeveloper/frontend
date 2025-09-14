@@ -1,17 +1,19 @@
 // lib/poker_socket.dart
 import 'dart:async';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import 'core/config/env.dart';
 import 'core/session/session.dart';
+import 'package:logging/logging.dart';
 
 typedef Json = Map<String, dynamic>;
 
 class PokerSocket {
+  static final _logger = Logger('PokerSocket');
   PokerSocket._();
   static final PokerSocket I = PokerSocket._();
 
-  IO.Socket? _socket;
+  io.Socket? _socket;
   String? _code;
 
   bool get connected => _socket?.connected == true;
@@ -38,9 +40,9 @@ class PokerSocket {
 
     final url = _buildWsUrl(hostBase: hostBase, wsBase: wsBase);
 
-    _socket = IO.io(
+    _socket = io.io(
       url,
-      IO.OptionBuilder()
+      io.OptionBuilder()
           .setTransports(['websocket'])
       // Sunucu hem handshake.auth.token hem de Authorization header'ını kabul ediyor.
           .setAuth({'token': token})
@@ -127,7 +129,7 @@ class PokerSocket {
 
   // ---- Helpers ----
 
-  IO.Socket _ensureConnected() {
+  io.Socket _ensureConnected() {
     final s = _socket;
     if (s == null || s.disconnected) {
       throw Exception('Socket not connected');
@@ -177,5 +179,5 @@ class PokerSocket {
     return '$wsUrl/poker';
   }
 
-  void _log(Object o) => print('[SOCKET] $o');
+  void _log(Object o) => _logger.info('[SOCKET] $o');
 }

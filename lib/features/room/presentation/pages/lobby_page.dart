@@ -1,4 +1,3 @@
-// lib/features/room/presentation/pages/lobby_page.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import '../../../../core/widgets/app_dialog.dart';
 import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../poker_socket.dart';
+import '../../../auth/presentation/pages/nickname_page.dart';
 
 class LobbyPage extends StatefulWidget {
   const LobbyPage({super.key});
@@ -66,6 +66,44 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
 
   void _attachSocket() {
     final s = PokerSocket.I;
+    // Örn. lobby_page.dart, _attachSocket() içinde:
+    s.on('disconnect', (reason) {
+      if (!mounted) return;
+
+      // Sunucunun kapattığı bağlantı: 'io server disconnect' (Socket.IO standard)
+      final r = (reason?.toString() ?? '').toLowerCase();
+      final serverClosed = r.contains('io server disconnect');
+
+      // Zaten odadaydık ve bağlantı server tarafından kapandıysa güvenli çıkış yap
+      if (serverClosed && (_code != null && _code!.isNotEmpty)) {
+        Session.I.clear();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const NicknamePage()),
+              (route) => false,
+        );
+      }
+    });
+
+    s.on('kicked', (data) {
+      if (!mounted) return;
+      // Kullanıcıya bilgilendirme
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You were removed from the room')),
+      );
+      // Session verilerini sıfırla
+      Session.I.clear();
+      // NicknamePage’e yönlendir (tüm sayfaları kapatarak)
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const NicknamePage()),
+            (route) => false,
+      );
+      // WebSocket bağlantısını da kapat (artık odadayız)
+      try {
+        (PokerSocket.I as dynamic).disconnect?.call();
+      } catch (_) {}
+    });
+
+
     s.on('room_state', (data) {
       if (!mounted) return;
       _consumeRoomStatePayload(data);
@@ -566,6 +604,27 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     });
   }
 
+  Future<void> _handleKick(String participantId) async {
+    // Onay dialogu
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: 'Remove participant?',
+      message: 'Are you sure you want to remove this participant from the room?',
+      confirmText: 'Remove',
+      cancelText: 'Cancel',
+    );
+    if (confirmed != true) return;
+    final code = _code;
+    if (code == null) return;
+    try {
+      await _touchPresenceOnce();
+      PokerSocket.I.kickParticipant(participantId);
+    } catch (e) {
+      // Hata mesajı
+    }
+  }
+
+
   Future _postLeave(String code, {String? transferToParticipantId}) async {
     final body = <String, dynamic>{};
     if (transferToParticipantId != null) {
@@ -648,6 +707,10 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                 children: _participants.map((p) {
                   final voted = p['hasVoted'] == true && status == 'voting';
                   final isOwner = p['isOwner'] == true;
+                  final pid = p['id']?.toString() ?? '';
+                  // Sadece oda sahibiyseniz ve listedeki kişi owner değilse silme ikonunu göster
+                  final showKick = _isOwner && pid.isNotEmpty && pid != _selfPid && !isOwner;
+
                   return Chip(
                     avatar: Icon(
                       voted ? Icons.check_circle : Icons.person,
@@ -657,6 +720,11 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                     label: Text(
                       '${p['displayName']}${isOwner ? ' (owner)' : ''}',
                     ),
+                    // Eğer sahip iseniz ve diğer katılımcı ise, silinebilir kılın
+                    onDeleted: showKick ? () => _handleKick(pid) : null,
+                    deleteIcon: showKick
+                        ? const Icon(Icons.close, size: 18)
+                        : null,
                   );
                 }).toList(),
               ),
