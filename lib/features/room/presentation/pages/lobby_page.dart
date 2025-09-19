@@ -657,6 +657,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       },
       child: AppScaffold(
         title: _room?['name']?.toString() ?? 'Lobby',
+        roomCode: _room?['code']?.toString() ?? _code, // sağ üstte kopyalanabilir
         body: _loading ? const _Loading() : _buildBody(context),
         currentIndex: 0,
         onNavSelected: (_) {},
@@ -666,7 +667,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   }
 
   Widget _buildBody(BuildContext context) {
-    final code = _code ?? _room?['code'];
     final status = _status;
 
     return Padding(
@@ -677,29 +677,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Header
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _room?['name']?.toString() ?? 'Room',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                  if (code != null)
-                    SelectableText(
-                      'Code: $code',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelLarge
-                          ?.copyWith(color: Colors.grey[600]),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
               // Participants
-              const AppSectionHeader(title: 'Participants'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
