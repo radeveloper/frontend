@@ -9,6 +9,8 @@ import '../../../../core/widgets/app_scaffold.dart';
 import '../../../../core/widgets/app_section_header.dart';
 import '../../../../poker_socket.dart';
 import '../../../auth/presentation/pages/nickname_page.dart';
+import '../controllers/voting_panel_controller.dart';
+import '../widgets/voting_panel.dart';
 
 class LobbyPage extends StatefulWidget {
   const LobbyPage({super.key});
@@ -28,16 +30,19 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   num? _average;
   String? _selfPid;
   bool _loading = true;
+  late VotingPanelController _votingPanelController;
 
   @override
   void initState() {
     super.initState();
+    _votingPanelController = VotingPanelController();
     WidgetsBinding.instance.addObserver(this);
     _bootstrap();
   }
 
   @override
   void dispose() {
+    _votingPanelController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _detachSocket();
     super.dispose();
@@ -236,7 +241,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
   // ---------------------- State consume ----------------------
 
   void _consumeRoomStatePayload(dynamic payload) {
-    // payload, backend’in buildState* çıktısı
+    // payload, backend'in buildState* çıktısı
     if (payload is! Map) return;
 
     final room = (payload['room'] ?? const {}) as Map;
@@ -245,6 +250,16 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final votes = (payload['votes'] ?? const []) as List;
     final avg = payload['average'];
     final newStatus = (round?['status'] as String?) ?? 'pending';
+
+    // Check if current user has voted
+    bool userHasVoted = false;
+    if (_selfPid != null) {
+      final me = participants.firstWhere(
+        (p) => p['id'] == _selfPid,
+        orElse: () => const {},
+      );
+      userHasVoted = me['hasVoted'] == true;
+    }
 
     setState(() {
       _room = room.cast<String, dynamic>();
@@ -255,21 +270,14 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
       _average = (avg is num) ? avg : null;
       _code = (_room?['code'] as String?) ?? _code;
 
-      // Seçim yönetimi
+      // Seçim yönetimi - update voting panel controller
       if (newStatus == 'pending') {
         _myVoteValue = null; // yeni tura hazırlık
       } else if (newStatus == 'voting') {
         // Eğer server "hasVoted=false" diyorsa seçim temizlenebilir:
-        if (_selfPid != null) {
-          final me = _participants.firstWhere(
-                (p) => p['id'] == _selfPid,
-            orElse: () => const {},
-          );
-          final hasVoted = me['hasVoted'] == true;
-          if (!hasVoted) _myVoteValue = null;
-        }
+        if (!userHasVoted) _myVoteValue = null;
       } else if (newStatus == 'revealed') {
-        // İstersen reveal’da kendi kartını _myVoteValue olarak set edebilirsin:
+        // İstersen reveal'da kendi kartını _myVoteValue olarak set edebilirsin:
         if (_selfPid != null) {
           final my = _votes.firstWhere(
                 (v) => v['participantId'] == _selfPid,
@@ -280,6 +288,10 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
         }
       }
     });
+
+    // Update voting panel controller with new status
+    _votingPanelController.updateRoundStatus(newStatus, userHasVoted: userHasVoted);
+
     _ensureSelfPid();
   }
 
@@ -395,7 +407,11 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     await _touchPresenceOnce();
     final code = _code;
     if (code == null) return;
-    setState(() => _myVoteValue = value); // <-- EKLENDİ (optimistic feedback)
+
+    // Mark the vote in voting panel controller
+    _votingPanelController.markAsVoted(value);
+
+    setState(() => _myVoteValue = value); // optimistic feedback
     (PokerSocket.I as dynamic).emit?.call('vote', <String, dynamic>{
       'code': code,
       'value': value,
@@ -411,7 +427,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     return showDialog<String>(
       context: context,
       builder: (ctx) {
-        // 🔧 FIX: Seçim state’ini StatefulBuilder DIŞINDA tut
         String? selectedId = initial;
 
         return StatefulBuilder(
@@ -420,33 +435,70 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
               title: const Text('Transfer ownership'),
               content: SizedBox(
                 width: 420,
-                child: RadioGroup<String>(
-                  groupValue: selectedId, // grup state’i burada
-                  onChanged: (v) => setSt(() => selectedId = v),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                            'Select a participant to become the new owner:'),
-                      ),
-                      const SizedBox(height: 12),
-                      ...options.map((p) {
-                        final pid = p['id']?.toString() ?? '';
-                        final name =
-                            p['displayName']?.toString() ?? '(unknown)';
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                          'Select a participant to become the new owner:'),
+                    ),
+                    const SizedBox(height: 12),
+                    ...options.map((p) {
+                      final pid = p['id']?.toString() ?? '';
+                      final name =
+                          p['displayName']?.toString() ?? '(unknown)';
+                      final isSelected = selectedId == pid;
 
-                        return RadioListTile<String>(
-                          value: pid, // yalnızca value (RadioGroup yönetiyor)
-                          title: Text(name),
-                          subtitle: (p['isOnline'] == true)
-                              ? const Text('online')
-                              : const Text('offline'),
-                        );
-                      }),
-                    ],
-                  ),
+                      return InkWell(
+                        onTap: () => setSt(() => selectedId = pid),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 20,
+                                height: 20,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
+                                    width: 2,
+                                  ),
+                                  color: isSelected ? Theme.of(context).primaryColor : Colors.transparent,
+                                ),
+                                child: isSelected
+                                    ? const Icon(
+                                        Icons.check,
+                                        size: 14,
+                                        color: Colors.white,
+                                      )
+                                    : null,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      style: Theme.of(context).textTheme.bodyLarge,
+                                    ),
+                                    Text(
+                                      (p['isOnline'] == true) ? 'online' : 'offline',
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
               actions: [
@@ -655,13 +707,30 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
         if (didPop) return;
         _handleBack();
       },
-      child: AppScaffold(
-        title: _room?['name']?.toString() ?? 'Lobby',
-        roomCode: _room?['code']?.toString() ?? _code, // sağ üstte kopyalanabilir
-        body: _loading ? const _Loading() : _buildBody(context),
-        currentIndex: 0,
-        onNavSelected: (_) {},
-        showNav: true,
+      child: Stack(
+        children: [
+          AppScaffold(
+            title: _room?['name']?.toString() ?? 'Lobby',
+            roomCode: _room?['code']?.toString() ?? _code, // sağ üstte kopyalanabilir
+            body: _loading ? const _Loading() : _buildBody(context),
+            currentIndex: 0,
+            onNavSelected: (_) {},
+            showNav: true,
+          ),
+          // Voting Panel Overlay
+          AnimatedBuilder(
+            animation: _votingPanelController,
+            builder: (context, child) {
+              return VotingPanel(
+                deckType: (_room?['deckType'] ?? 'fibonacci').toString(),
+                onVote: _vote,
+                selectedValue: _votingPanelController.selectedValue,
+                isOpen: _votingPanelController.isOpen,
+                onClose: () => _votingPanelController.closePanel(),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -746,11 +815,62 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                     ],
                   ),
                 const SizedBox(height: 12),
-                _VoteGrid(
-                  deckType: (_room?['deckType'] ?? 'fibonacci').toString(),
-                  onVote: _vote,
-                  selectedValue: _myVoteValue,
-                  enabled: _status == 'voting',
+                // Button to reopen voting panel if user hasn't voted
+                AnimatedBuilder(
+                  animation: _votingPanelController,
+                  builder: (context, child) {
+                    if (_votingPanelController.canReopenPanel()) {
+                      return Center(
+                        child: Column(
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: () => _votingPanelController.reopenPanel(),
+                              icon: const Icon(Icons.how_to_vote),
+                              label: const Text('Open Voting Panel'),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tap to vote on this round',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    } else if (_votingPanelController.hasVoted) {
+                      return Center(
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.check_circle,
+                              size: 48,
+                              color: Colors.green,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'You have voted!',
+                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (_myVoteValue != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Your vote: $_myVoteValue',
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
                 ),
               ],
 
@@ -797,65 +917,5 @@ class _Loading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Center(child: CircularProgressIndicator());
-  }
-}
-
-/// Basit oy kartları – tasarım bileşeninle değiştirebilirsin.
-/// deckType: 'fibonacci' için klasik dizi.
-class _VoteGrid extends StatelessWidget {
-  const _VoteGrid({
-    required this.deckType,
-    required this.onVote,
-    this.selectedValue,
-    this.enabled = true,
-  });
-
-  final String deckType;
-  final void Function(String value) onVote;
-  final String? selectedValue;
-  final bool enabled;
-
-  List<String> get _values {
-    switch (deckType) {
-      case 'tshirt':
-        return const ['XS', 'S', 'M', 'L', 'XL', '?'];
-      case 'fibonacci':
-      default:
-        return const ['0', '1/2', '1', '2', '3', '5', '8', '13', '?'];
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: _values.map((v) {
-        final bool isSelected = (selectedValue != null && selectedValue == v);
-        return OutlinedButton(
-          onPressed: enabled ? () => onVote(v) : null,
-          style: OutlinedButton.styleFrom(
-            side: isSelected ? const BorderSide(color: Colors.white) : null,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.check,
-                size: 16,
-                color: isSelected ? Colors.white : null,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                v,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : null,
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
   }
 }
