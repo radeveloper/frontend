@@ -10,6 +10,7 @@ import '../../../../poker_socket.dart';
 import '../../../auth/presentation/pages/nickname_page.dart';
 import '../controllers/voting_panel_controller.dart';
 import '../widgets/participant_chip.dart';
+import '../widgets/reveal_screen.dart';
 import '../widgets/transfer_ownership_dialog.dart';
 import '../widgets/voting_panel.dart';
 import '../widgets/voting_status_widget.dart';
@@ -644,6 +645,17 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
 
   Widget _buildBody(BuildContext context) {
     final status = _status;
+    // Show full-screen reveal experience when status is revealed
+    if (status == 'revealed') {
+      return RevealScreen(
+        average: _average,
+        votes: _votes,
+        participants: _participants,
+        onReset: _isOwner ? _reset : null,
+        isOwner: _isOwner,
+      );
+    }
+
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -721,27 +733,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                     myVoteValue: _myVoteValue,
                   ),
                 ),
-              ],
-
-              if (status == 'revealed') ...[
-                Row(
-                  children: [
-                    if (_average != null)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 12),
-                        child: Chip(
-                          label: Text('Average: $_average'),
-                          avatar: const Icon(Icons.analytics),
-                        ),
-                      ),
-                    if (_isOwner)
-                      OutlinedButton(
-                        onPressed: _reset,
-                        child: const Text('Start new round'),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
               ],
             ],
           ),
