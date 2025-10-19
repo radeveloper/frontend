@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-
 import '../../../../core/network/api_client.dart';
 import '../../../../core/session/session.dart';
 import '../../../../core/widgets/app_dialog.dart';
@@ -10,7 +9,10 @@ import '../../../../core/widgets/app_section_header.dart';
 import '../../../../poker_socket.dart';
 import '../../../auth/presentation/pages/nickname_page.dart';
 import '../controllers/voting_panel_controller.dart';
+import '../widgets/participant_chip.dart';
+import '../widgets/transfer_ownership_dialog.dart';
 import '../widgets/voting_panel.dart';
+import '../widgets/voting_status_widget.dart';
 
 class LobbyPage extends StatefulWidget {
   const LobbyPage({super.key});
@@ -422,102 +424,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
     final options = _eligibleTransferees;
     if (options.isEmpty) return null;
 
-    final String? initial = options.first['id']?.toString();
-
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) {
-        String? selectedId = initial;
-
-        return StatefulBuilder(
-          builder: (ctx, setSt) {
-            return AlertDialog(
-              title: const Text('Transfer ownership'),
-              content: SizedBox(
-                width: 420,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                          'Select a participant to become the new owner:'),
-                    ),
-                    const SizedBox(height: 12),
-                    ...options.map((p) {
-                      final pid = p['id']?.toString() ?? '';
-                      final name =
-                          p['displayName']?.toString() ?? '(unknown)';
-                      final isSelected = selectedId == pid;
-
-                      return InkWell(
-                        onTap: () => setSt(() => selectedId = pid),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 20,
-                                height: 20,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: isSelected ? Theme.of(context).primaryColor : Colors.grey,
-                                    width: 2,
-                                  ),
-                                  color: isSelected ? Theme.of(context).primaryColor : Colors.transparent,
-                                ),
-                                child: isSelected
-                                    ? const Icon(
-                                        Icons.check,
-                                        size: 14,
-                                        color: Colors.white,
-                                      )
-                                    : null,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      name,
-                                      style: Theme.of(context).textTheme.bodyLarge,
-                                    ),
-                                    Text(
-                                      (p['isOnline'] == true) ? 'online' : 'offline',
-                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                  }),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(null),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: selectedId == null
-                      ? null
-                      : () => Navigator.of(ctx).pop(selectedId),
-                  child: const Text('Transfer & Leave'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+    return TransferOwnershipDialog.show(context, options);
   }
 
   // ---------------------- Leave flow (geri butonu) ----------------------
@@ -753,54 +660,16 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                 spacing: 8,
                 runSpacing: 8,
                 children: _participants.map((p) {
-                  final voted = p['hasVoted'] == true && status == 'voting';
-                  final isOwner = p['isOwner'] == true;
                   final pid = p['id']?.toString() ?? '';
-
-                  // Revealed durumda kullanıcının oyu
-                  String? userVote;
-                  if (status == 'revealed') {
-                    final vote = _votes.firstWhere(
-                      (v) => v['participantId'] == pid,
-                      orElse: () => const {},
-                    );
-                    userVote = vote['value']?.toString();
-                  }
-
-                  // Owner için katılımcıyı çıkarma durumu
+                  final isOwner = p['isOwner'] == true;
                   final showKick = _isOwner && pid.isNotEmpty && pid != _selfPid && !isOwner;
 
-                  return Chip(
-                    avatar: status == 'revealed' && userVote != null
-                        ? Container(
-                            width: 24,
-                            height: 24,
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).primaryColor,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Center(
-                              child: Text(
-                                userVote,
-                                style: const TextStyle(
-                                  color: Colors.green,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          )
-                        : Icon(
-                            voted ? Icons.check_circle : Icons.person,
-                            size: 18,
-                            color: voted ? Colors.green : Colors.white,
-                          ),
-                    label: Text(
-                      '${p['displayName']}${isOwner ? ' (owner)' : ''}',
-                    ),
-                    // Owner için katılımcıyı çıkarma işlevi
-                    onDeleted: showKick ? () => _handleKick(pid) : null,
-                    deleteIcon: showKick ? const Icon(Icons.close, size: 18) : null,
+                  return ParticipantChip(
+                    participant: p,
+                    status: status,
+                    votes: _votes,
+                    showKick: showKick,
+                    onKick: showKick ? () => _handleKick(pid) : null,
                   );
                 }).toList(),
               ),
@@ -844,62 +713,13 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                     ],
                   ),
                 const SizedBox(height: 12),
-                // Button to reopen voting panel if user hasn't voted
+                // Voting status widget
                 AnimatedBuilder(
                   animation: _votingPanelController,
-                  builder: (context, child) {
-                    if (_votingPanelController.canReopenPanel()) {
-                      return Center(
-                        child: Column(
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: () => _votingPanelController.reopenPanel(),
-                              icon: const Icon(Icons.how_to_vote),
-                              label: const Text('Open Voting Panel'),
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Tap to vote on this round',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    } else if (_votingPanelController.hasVoted) {
-                      return Center(
-                        child: Column(
-                          children: [
-                            const Icon(
-                              Icons.check_circle,
-                              size: 48,
-                              color: Colors.green,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'You have voted!',
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (_myVoteValue != null) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                'Your vote: $_myVoteValue',
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                            ],
-                          ],
-                        ),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
+                  builder: (context, child) => VotingStatusWidget(
+                    controller: _votingPanelController,
+                    myVoteValue: _myVoteValue,
+                  ),
                 ),
               ],
 
