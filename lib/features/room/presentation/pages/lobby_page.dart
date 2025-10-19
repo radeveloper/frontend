@@ -497,7 +497,7 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                           ),
                         ),
                       );
-                    }),
+                  }),
                   ],
                 ),
               ),
@@ -746,7 +746,8 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Participants
+              // Katılımcılar
+              AppSectionHeader(title: 'Participants (${_participants.length})'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -755,23 +756,51 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                   final voted = p['hasVoted'] == true && status == 'voting';
                   final isOwner = p['isOwner'] == true;
                   final pid = p['id']?.toString() ?? '';
-                  // Sadece oda sahibiyseniz ve listedeki kişi owner değilse silme ikonunu göster
+
+                  // Revealed durumda kullanıcının oyu
+                  String? userVote;
+                  if (status == 'revealed') {
+                    final vote = _votes.firstWhere(
+                      (v) => v['participantId'] == pid,
+                      orElse: () => const {},
+                    );
+                    userVote = vote['value']?.toString();
+                  }
+
+                  // Owner için katılımcıyı çıkarma durumu
                   final showKick = _isOwner && pid.isNotEmpty && pid != _selfPid && !isOwner;
 
                   return Chip(
-                    avatar: Icon(
-                      voted ? Icons.check_circle : Icons.person,
-                      size: 18,
-                      color: voted ? Colors.green : null,
-                    ),
+                    avatar: status == 'revealed' && userVote != null
+                        ? Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).primaryColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Center(
+                              child: Text(
+                                userVote,
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          )
+                        : Icon(
+                            voted ? Icons.check_circle : Icons.person,
+                            size: 18,
+                            color: voted ? Colors.green : Colors.white,
+                          ),
                     label: Text(
                       '${p['displayName']}${isOwner ? ' (owner)' : ''}',
                     ),
-                    // Eğer sahip iseniz ve diğer katılımcı ise, silinebilir kılın
+                    // Owner için katılımcıyı çıkarma işlevi
                     onDeleted: showKick ? () => _handleKick(pid) : null,
-                    deleteIcon: showKick
-                        ? const Icon(Icons.close, size: 18)
-                        : null,
+                    deleteIcon: showKick ? const Icon(Icons.close, size: 18) : null,
                   );
                 }).toList(),
               ),
@@ -893,15 +922,6 @@ class _LobbyPageState extends State<LobbyPage> with WidgetsBindingObserver {
                   ],
                 ),
                 const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _votes
-                      .map((v) => Chip(
-                    label: Text('${v['participantId']}: ${v['value']}'),
-                  ))
-                      .toList(),
-                ),
               ],
             ],
           ),

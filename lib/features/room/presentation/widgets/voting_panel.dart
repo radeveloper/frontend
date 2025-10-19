@@ -162,63 +162,106 @@ class _VotingPanelState extends State<VotingPanel>
                       scale: _scaleAnimation.value,
                       child: Container(
                         constraints: const BoxConstraints(maxWidth: 600),
-                        child: GridView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            childAspectRatio: 0.7,
-                            crossAxisSpacing: 16,
-                            mainAxisSpacing: 16,
-                          ),
-                          itemCount: _values.length,
-                          itemBuilder: (context, index) {
-                            final value = _values[index];
-                            final isSelected = _localSelectedValue == value;
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            // Always maintain at least 3 columns, but scale up for larger screens
+                            int crossAxisCount;
+                            double childAspectRatio;
+                            double crossAxisSpacing;
+                            double mainAxisSpacing;
 
-                            return GestureDetector(
-                              onTap: () => _selectValue(value),
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 200),
-                                decoration: BoxDecoration(
-                                  color: isSelected
-                                      ? Theme.of(context).primaryColor
-                                      : Colors.white,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: isSelected
-                                        ? Theme.of(context).primaryColor
-                                        : Colors.grey.shade300,
-                                    width: 2,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.1),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    if (isSelected)
-                                      const Icon(
-                                        Icons.check_circle,
-                                        color: Colors.white,
-                                        size: 32,
-                                      ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      value,
-                                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                        color: isSelected ? Colors.white : Colors.black87,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                            if (constraints.maxWidth < 350) {
+                              // Very small screens - still 3 columns with tighter spacing
+                              crossAxisCount = 3;
+                              childAspectRatio = 0.8;
+                              crossAxisSpacing = 8;
+                              mainAxisSpacing = 8;
+                            } else if (constraints.maxWidth < 500) {
+                              // Small screens - 3 columns with normal spacing
+                              crossAxisCount = 3;
+                              childAspectRatio = 0.7;
+                              crossAxisSpacing = 12;
+                              mainAxisSpacing = 12;
+                            } else if (constraints.maxWidth < 700) {
+                              // Medium screens - 4 columns
+                              crossAxisCount = 4;
+                              childAspectRatio = 0.7;
+                              crossAxisSpacing = 14;
+                              mainAxisSpacing = 14;
+                            } else {
+                              // Large screens - 5 columns for better use of space
+                              crossAxisCount = 5;
+                              childAspectRatio = 0.75;
+                              crossAxisSpacing = 16;
+                              mainAxisSpacing = 16;
+                            }
+
+                            return GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: crossAxisCount,
+                                childAspectRatio: childAspectRatio,
+                                crossAxisSpacing: crossAxisSpacing,
+                                mainAxisSpacing: mainAxisSpacing,
                               ),
+                              itemCount: _values.length,
+                              itemBuilder: (context, index) {
+                                final value = _values[index];
+                                final isSelected = _localSelectedValue == value;
+
+                                return GestureDetector(
+                                  onTap: () => _selectValue(value),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 200),
+                                    decoration: BoxDecoration(
+                                      color: isSelected
+                                          ? Theme.of(context).primaryColor
+                                          : Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? Theme.of(context).primaryColor
+                                            : Colors.grey.shade300,
+                                        width: 2,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: 0.1),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        if (isSelected)
+                                          Icon(
+                                            Icons.check_circle,
+                                            color: Colors.white,
+                                            size: constraints.maxWidth < 350 ? 24 : 28, // Responsive icon size
+                                          ),
+                                        SizedBox(height: constraints.maxWidth < 350 ? 4 : 8), // Responsive spacing
+                                        Flexible( // Prevent text overflow
+                                          child: Text(
+                                            value,
+                                            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                              color: isSelected ? Colors.white : Colors.black87,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: constraints.maxWidth < 350 ? 18 :
+                                                        constraints.maxWidth < 500 ? 20 : 24, // Responsive font size
+                                            ),
+                                            textAlign: TextAlign.center,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
                             );
                           },
                         ),
@@ -255,7 +298,7 @@ class _VotingPanelState extends State<VotingPanel>
                 ),
               ),
             ),
-          ),
+          )
         );
       },
     );
