@@ -93,7 +93,7 @@ class _NicknamePageState extends State<NicknamePage> with TickerProviderStateMix
   Widget build(BuildContext context) {
     final body = Container(
       decoration: const BoxDecoration(
-        gradient: AppGradients.background,
+        color: AppColors.bg,
       ),
       child: SafeArea(
         child: Padding(
@@ -122,7 +122,7 @@ class _NicknamePageState extends State<NicknamePage> with TickerProviderStateMix
                                 width: 100,
                                 height: 100,
                                 decoration: BoxDecoration(
-                                  gradient: AppGradients.primary,
+                                  color: AppColors.primary,
                                   shape: BoxShape.circle,
                                   boxShadow: AppShadow.glow,
                                   border: Border.all(
@@ -141,18 +141,15 @@ class _NicknamePageState extends State<NicknamePage> with TickerProviderStateMix
                         ),
                         const SizedBox(height: 40),
 
-                        // Title with red gradient
-                        ShaderMask(
-                          shaderCallback: (bounds) => AppGradients.primary.createShader(bounds),
-                          child: const Text(
-                            'Welcome to Scrum Poker',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 32,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.5,
-                            ),
+                        // Title with red color
+                        const Text(
+                          'Welcome to Scrum Poker',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
                           ),
                         ),
                         const SizedBox(height: 12),

@@ -57,7 +57,7 @@ class _AppCardState extends State<AppCard> with SingleTickerProviderStateMixin {
           child: Container(
             padding: widget.padding,
             decoration: BoxDecoration(
-              gradient: widget.gradient ?? AppGradients.card,
+              color: AppColors.surfaceCard,
               borderRadius: BorderRadius.circular(AppRadius.card),
               boxShadow: widget.withShadow
                   ? (_isHovered ? AppShadow.medium : AppShadow.card)

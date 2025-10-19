@@ -126,7 +126,7 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
-          gradient: AppGradients.background,
+          color: AppColors.bg,
         ),
         child: SafeArea(
           child: FadeTransition(
@@ -152,7 +152,7 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               decoration: BoxDecoration(
-                                gradient: AppGradients.primary,
+                                color: AppColors.primary,
                                 borderRadius: BorderRadius.circular(20),
                                 boxShadow: AppShadow.glow,
                                 border: Border.all(
@@ -179,16 +179,13 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
                           ],
                         ),
                         const SizedBox(height: 32),
-                        ShaderMask(
-                          shaderCallback: (bounds) => AppGradients.primary.createShader(bounds),
-                          child: const Text(
-                            'Start Planning',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 36,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.5,
-                            ),
+                        const Text(
+                          'Start Planning',
+                          style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 36,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.5,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -228,7 +225,7 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
                                         Container(
                                           padding: const EdgeInsets.all(12),
                                           decoration: BoxDecoration(
-                                            gradient: AppGradients.primary,
+                                            color: AppColors.primary,
                                             borderRadius: BorderRadius.circular(12),
                                             boxShadow: AppShadow.glow,
                                           ),

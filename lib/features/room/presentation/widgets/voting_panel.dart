@@ -132,14 +132,7 @@ class _VotingPanelState extends State<VotingPanel>
             color: Colors.transparent,
             child: Container(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.95),
-                    AppColors.bg.withValues(alpha: 0.98),
-                  ],
-                ),
+                color: AppColors.bg,
               ),
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
@@ -154,16 +147,13 @@ class _VotingPanelState extends State<VotingPanel>
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                ShaderMask(
-                                  shaderCallback: (bounds) => AppGradients.primary.createShader(bounds),
-                                  child: const Text(
-                                    'Cast Your Vote',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: -0.5,
-                                    ),
+                                const Text(
+                                  'Cast Your Vote',
+                                  style: TextStyle(
+                                    color: AppColors.primary,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.5,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -234,8 +224,7 @@ class _VotingPanelState extends State<VotingPanel>
                             child: Container(
                               height: 60,
                               decoration: BoxDecoration(
-                                gradient: _localSelectedValue != null ? AppGradients.primary : null,
-                                color: _localSelectedValue == null ? AppColors.neutral600 : null,
+                                color: _localSelectedValue != null ? AppColors.primary : AppColors.neutral600,
                                 borderRadius: BorderRadius.circular(16),
                                 boxShadow: _localSelectedValue != null ? AppShadow.glow : null,
                               ),
@@ -277,9 +266,8 @@ class _VotingPanelState extends State<VotingPanel>
                 ),
               ),
             ),
-          ),
-        );
-      },
+          ));
+        },
     );
   }
 }
@@ -355,7 +343,7 @@ class _VotingCardState extends State<_VotingCard> with SingleTickerProviderState
                     ..setEntry(1, 1, _isPressed ? 0.95 : 1.0)
                     ..setEntry(2, 2, _isPressed ? 0.95 : 1.0),
                   decoration: BoxDecoration(
-                    gradient: widget.isSelected ? AppGradients.votingCardSelected : AppGradients.votingCard,
+                    color: widget.isSelected ? AppColors.primary : AppColors.surfaceCard,
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: widget.isSelected
                         ? AppShadow.glowAccent
@@ -378,13 +366,7 @@ class _VotingCardState extends State<_VotingCard> with SingleTickerProviderState
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
                           child: Container(
-                            decoration: const BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [AppColors.glassOverlay, Colors.transparent],
-                              ),
-                            ),
+                            color: AppColors.glassOverlay,
                           ),
                         ),
                       ),

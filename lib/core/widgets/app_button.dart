@@ -162,8 +162,7 @@ class _AppButtonState extends State<AppButton> with SingleTickerProviderStateMix
       height: _height,
       padding: EdgeInsets.symmetric(horizontal: _hPadding),
       decoration: BoxDecoration(
-        gradient: isDisabled ? null : AppGradients.primary,
-        color: isDisabled ? AppColors.neutral600 : null,
+        color: isDisabled ? AppColors.neutral600 : AppColors.primary,
         borderRadius: BorderRadius.circular(AppRadius.button),
         boxShadow: isDisabled ? null : (_isHovered ? AppShadow.glow : AppShadow.soft),
       ),

@@ -48,47 +48,13 @@ class AppColors {
 }
 
 class AppGradients {
-  // Red to black gradient
-  static const primary = LinearGradient(
-    colors: [Color(0xFFFF0000), Color(0xFFCC0000), Color(0xFF8B0000)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  // Dark card gradient
-  static const card = LinearGradient(
-    colors: [Color(0xFF1C1C1C), Color(0xFF0F0F0F)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  // Pure black background gradient
-  static const background = LinearGradient(
-    colors: [Color(0xFF000000), Color(0xFF1A1A1A)],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
-
-  // Red gradient for voting cards
-  static const votingCard = LinearGradient(
-    colors: [Color(0xFF2A2A2A), Color(0xFF1A1A1A)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  // Selected card - Red gradient
-  static const votingCardSelected = LinearGradient(
-    colors: [Color(0xFFFF0000), Color(0xFFCC0000)],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
-
-  // White to transparent for highlights
-  static const whiteOverlay = LinearGradient(
-    colors: [Color(0x1AFFFFFF), Colors.transparent],
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-  );
+  // Flat colors for corporate design - no gradients
+  static const primary = AppColors.primary;
+  static const card = AppColors.surfaceCard;
+  static const background = AppColors.bg;
+  static const votingCard = AppColors.surfaceCard;
+  static const votingCardSelected = AppColors.primary;
+  static const whiteOverlay = AppColors.glassOverlay;
 }
 
 class AppRadius {
