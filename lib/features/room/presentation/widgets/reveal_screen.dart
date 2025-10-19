@@ -28,6 +28,7 @@ class _RevealScreenState extends State<RevealScreen>
   late AnimationController _fadeController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
+  bool _sortDescending = true; // Default: büyükten küçüğe
 
   @override
   void initState() {
@@ -82,6 +83,29 @@ class _RevealScreenState extends State<RevealScreen>
     return distribution;
   }
 
+  Map<String, List<String>> _getVotesByValue() {
+    final votesByValue = <String, List<String>>{};
+
+    for (final vote in widget.votes) {
+      final value = vote['value']?.toString() ?? '?';
+      final participantId = vote['participantId']?.toString() ?? '';
+
+      // Find participant name (using displayName field)
+      final participant = widget.participants.firstWhere(
+        (p) => p['id']?.toString() == participantId,
+        orElse: () => {'displayName': 'Unknown'},
+      );
+      final name = participant['displayName']?.toString() ?? 'Unknown';
+
+      if (!votesByValue.containsKey(value)) {
+        votesByValue[value] = [];
+      }
+      votesByValue[value]!.add(name);
+    }
+
+    return votesByValue;
+  }
+
   String _getMostCommonVote() {
     final distribution = _getVoteDistribution();
     if (distribution.isEmpty) return '?';
@@ -103,6 +127,7 @@ class _RevealScreenState extends State<RevealScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final distribution = _getVoteDistribution();
+    final votesByValue = _getVotesByValue();
     final mostCommon = _getMostCommonVote();
     final consensus = _getConsensusPercentage();
 
@@ -159,7 +184,7 @@ class _RevealScreenState extends State<RevealScreen>
                     // Vote Distribution
                     FadeTransition(
                       opacity: _fadeAnimation,
-                      child: _buildVoteDistribution(context, distribution),
+                      child: _buildVoteDistribution(context, distribution, votesByValue),
                     ),
                   ],
                 ),
@@ -361,6 +386,7 @@ class _RevealScreenState extends State<RevealScreen>
   Widget _buildVoteDistribution(
     BuildContext context,
     Map<String, int> distribution,
+    Map<String, List<String>> votesByValue,
   ) {
     final theme = Theme.of(context);
     final sortedEntries = distribution.entries.toList()
@@ -369,14 +395,17 @@ class _RevealScreenState extends State<RevealScreen>
         final aNum = num.tryParse(a.key);
         final bNum = num.tryParse(b.key);
         if (aNum != null && bNum != null) {
-          return aNum.compareTo(bNum);
+          return _sortDescending
+              ? bNum.compareTo(aNum)
+              : aNum.compareTo(bNum);
         }
-        return a.key.compareTo(b.key);
+        return _sortDescending
+            ? b.key.compareTo(a.key)
+            : a.key.compareTo(b.key);
       });
 
-
     return Container(
-      constraints: const BoxConstraints(maxWidth: 500),
+      constraints: const BoxConstraints(maxWidth: 600),
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -393,46 +422,88 @@ class _RevealScreenState extends State<RevealScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(
-                Icons.bar_chart,
-                color: theme.colorScheme.primary,
+              Row(
+                children: [
+                  Icon(
+                    Icons.bar_chart,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Vote Distribution',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                'Vote Distribution',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
+              if (widget.isOwner)
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _sortDescending = !_sortDescending;
+                    });
+                  },
+                  icon: Icon(
+                    _sortDescending ? Icons.arrow_downward : Icons.arrow_upward,
+                  ),
+                  tooltip: _sortDescending
+                      ? 'Sort ascending'
+                      : 'Sort descending',
+                  style: IconButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primaryContainer,
+                    foregroundColor: theme.colorScheme.onPrimaryContainer,
+                  ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 24),
           ...sortedEntries.map((entry) {
             final percentage = (entry.value / widget.votes.length);
+            final voters = votesByValue[entry.key] ?? [];
+
             return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(bottom: 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        entry.key,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              theme.colorScheme.primary,
+                              theme.colorScheme.secondary,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          entry.key,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: theme.colorScheme.onPrimary,
+                          ),
                         ),
                       ),
                       Text(
                         '${entry.value} vote${entry.value != 1 ? 's' : ''}',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Stack(
                     children: [
                       Container(
@@ -459,6 +530,44 @@ class _RevealScreenState extends State<RevealScreen>
                       ),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: voters.map((name) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.secondaryContainer,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: theme.colorScheme.outline.withValues(alpha: 0.2),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.person,
+                              size: 14,
+                              color: theme.colorScheme.onSecondaryContainer,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              name,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSecondaryContainer,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
                 ],
               ),
             );
@@ -468,4 +577,3 @@ class _RevealScreenState extends State<RevealScreen>
     );
   }
 }
-
