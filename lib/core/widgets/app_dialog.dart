@@ -1,6 +1,6 @@
 // lib/core/widgets/app_dialog.dart
 import 'package:flutter/material.dart';
-import '../theme/tokens.dart' hide AppButtonSize; // ❗ tokens içindeki AppButtonSize'ı gizle
+import '../theme/tokens.dart';
 import 'app_button.dart';
 
 class AppDialog {

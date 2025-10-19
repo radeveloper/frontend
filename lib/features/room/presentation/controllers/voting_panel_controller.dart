@@ -84,15 +84,17 @@ class VotingPanelController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Allows users to reopen the panel if they haven't voted and round is still in voting phase
+  /// Allows users to reopen the panel during voting phase, even if they've already voted
   bool canReopenPanel() {
-    return _roundStatus == 'voting' && !_hasVoted;
+    return _roundStatus == 'voting' && !_isOpen;
   }
 
-  /// Reopens the panel if conditions are met
+  /// Reopens the panel if conditions are met (voting phase and not revealed)
   void reopenPanel() {
-    if (canReopenPanel()) {
-      openPanel();
+    if (_roundStatus == 'voting') {
+      _isOpen = true;
+      _canVote = true;
+      notifyListeners();
     }
   }
 }

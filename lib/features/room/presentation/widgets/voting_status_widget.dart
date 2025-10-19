@@ -66,6 +66,24 @@ class VotingStatusWidget extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: () => controller.reopenPanel(),
+            icon: const Icon(Icons.edit),
+            label: const Text('Change Vote'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'You can change your vote until results are revealed',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: Colors.grey),
+            textAlign: TextAlign.center,
+          ),
         ],
       ),
     );
