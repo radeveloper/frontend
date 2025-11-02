@@ -152,16 +152,6 @@ class _RevealScreenState extends State<RevealScreen>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Title
-                    Text(
-                      'Votes Revealed!',
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 48),
-
                     // Average Circle
                     ScaleTransition(
                       scale: _scaleAnimation,
@@ -306,31 +296,38 @@ class _RevealScreenState extends State<RevealScreen>
   ) {
     final theme = Theme.of(context);
 
-    return Wrap(
-      alignment: WrapAlignment.center,
-      spacing: 16,
-      runSpacing: 16,
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildStatCard(
-          context,
-          icon: Icons.people,
-          label: 'Total Votes',
-          value: widget.votes.length.toString(),
-          color: theme.colorScheme.primary,
+        Expanded(
+          child: _buildStatCard(
+            context,
+            icon: Icons.people,
+            label: 'Total Votes',
+            value: widget.votes.length.toString(),
+            color: theme.colorScheme.primary,
+          ),
         ),
-        _buildStatCard(
-          context,
-          icon: Icons.star,
-          label: 'Most Common',
-          value: mostCommon,
-          color: theme.colorScheme.secondary,
+        const SizedBox(width: 16),
+        Expanded(
+          child: _buildStatCard(
+            context,
+            icon: Icons.star,
+            label: 'Common',
+            value: mostCommon,
+            color: theme.colorScheme.secondary,
+          ),
         ),
-        _buildStatCard(
-          context,
-          icon: Icons.pie_chart,
-          label: 'Consensus',
-          value: '$consensus%',
-          color: theme.colorScheme.tertiary,
+        const SizedBox(width: 16),
+        Expanded(
+          child: _buildStatCard(
+            context,
+            icon: Icons.pie_chart,
+            label: 'Consensus',
+            value: '$consensus%',
+            color: theme.colorScheme.tertiary,
+          ),
         ),
       ],
     );
@@ -430,9 +427,9 @@ class _RevealScreenState extends State<RevealScreen>
                     Icons.bar_chart,
                     color: theme.colorScheme.primary,
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   Text(
-                    'Vote Distribution',
+                    'Distribution',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -447,13 +444,12 @@ class _RevealScreenState extends State<RevealScreen>
                     });
                   },
                   icon: Icon(
-                    _sortDescending ? Icons.arrow_downward : Icons.arrow_upward,
+                    _sortDescending ? Icons.sort_by_alpha_rounded : Icons.sort_by_alpha_rounded,
                   ),
                   tooltip: _sortDescending
                       ? 'Sort ascending'
                       : 'Sort descending',
                   style: IconButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primaryContainer,
                     foregroundColor: theme.colorScheme.onPrimaryContainer,
                   ),
                 ),
