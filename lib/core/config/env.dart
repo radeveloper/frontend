@@ -17,7 +17,7 @@ class Env {
     if (kIsWeb) {
       // Chrome aynı makinede çalıştığı için localhost:3000 iyi bir varsayılan.
       // Farklı host/port kullanıyorsan --dart-define ile geç.
-      return 'http://localhost:3000';
+      return 'https://scrumpoker-be.soonpx.com';
     }
 
     // Mobil/Desktop: defaultTargetPlatform ile seçim
@@ -25,15 +25,15 @@ class Env {
       case TargetPlatform.iOS:
       case TargetPlatform.macOS:
       // iOS sim / macOS
-        return 'http://127.0.0.1:3000';
+        return 'https://scrumpoker-be.soonpx.com';
       case TargetPlatform.android:
       // Android emulator: host makine => 10.0.2.2
-        return 'http://10.0.2.2:3000';
+        return 'https://scrumpoker-be.soonpx.com';
       case TargetPlatform.windows:
       case TargetPlatform.linux:
-        return 'http://localhost:3000';
+        return 'https://scrumpoker-be.soonpx.com';
       default:
-        return 'http://localhost:3000';
+        return 'https://scrumpoker-be.soonpx.com';
     }
   }
 
@@ -43,7 +43,7 @@ class Env {
 
     if (kIsWeb) {
       // HTTPS ise wss kullanman gerekir; dev'de çoğunlukla http/ws.
-      return 'ws://localhost:3000/poker';
+      return 'wss://scrumpoker-be.soonpx.com';
     }
 
     // Mobil/Desktop için api'den türet

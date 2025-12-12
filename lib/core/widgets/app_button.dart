@@ -14,6 +14,7 @@ class AppButton extends StatefulWidget {
     this.expand = false,
     this.variant = AppButtonVariant.primary,
     this.size = AppButtonSize.md,
+    this.borderRadius,
   });
 
   final String label;
@@ -23,6 +24,7 @@ class AppButton extends StatefulWidget {
   final bool expand;
   final AppButtonVariant variant;
   final AppButtonSize size;
+  final double? borderRadius;
 
   @override
   State<AppButton> createState() => _AppButtonState();
@@ -76,6 +78,8 @@ class _AppButtonState extends State<AppButton> with SingleTickerProviderStateMix
   };
 
   double get _gap => 8;
+
+  double get _borderRadius => widget.borderRadius ?? AppRadius.button;
 
   @override
   Widget build(BuildContext context) {
@@ -163,14 +167,14 @@ class _AppButtonState extends State<AppButton> with SingleTickerProviderStateMix
       padding: EdgeInsets.symmetric(horizontal: _hPadding),
       decoration: BoxDecoration(
         color: isDisabled ? AppColors.neutral600 : AppColors.primary,
-        borderRadius: BorderRadius.circular(AppRadius.button),
+        borderRadius: BorderRadius.circular(_borderRadius),
         boxShadow: isDisabled ? null : (_isHovered ? AppShadow.glow : AppShadow.soft),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onPressed,
-          borderRadius: BorderRadius.circular(AppRadius.button),
+          borderRadius: BorderRadius.circular(_borderRadius),
           child: Center(child: content),
         ),
       ),
@@ -183,14 +187,14 @@ class _AppButtonState extends State<AppButton> with SingleTickerProviderStateMix
       padding: EdgeInsets.symmetric(horizontal: _hPadding),
       decoration: BoxDecoration(
         color: isDisabled ? AppColors.neutral600 : AppColors.primary,
-        borderRadius: BorderRadius.circular(AppRadius.button),
+        borderRadius: BorderRadius.circular(_borderRadius),
         boxShadow: isDisabled ? null : (_isHovered ? AppShadow.glow : AppShadow.soft),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onPressed,
-          borderRadius: BorderRadius.circular(AppRadius.button),
+          borderRadius: BorderRadius.circular(_borderRadius),
           child: Center(child: content),
         ),
       ),
@@ -203,10 +207,10 @@ class _AppButtonState extends State<AppButton> with SingleTickerProviderStateMix
       padding: EdgeInsets.symmetric(horizontal: _hPadding),
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadius.button),
+        borderRadius: BorderRadius.circular(_borderRadius),
         border: Border.all(
           color: isDisabled ? AppColors.neutral600 : AppColors.primary,
-          width: 2,
+          width: 1.0,
         ),
         boxShadow: _isHovered ? AppShadow.soft : null,
       ),
@@ -214,7 +218,7 @@ class _AppButtonState extends State<AppButton> with SingleTickerProviderStateMix
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onPressed,
-          borderRadius: BorderRadius.circular(AppRadius.button),
+          borderRadius: BorderRadius.circular(_borderRadius),
           child: Center(child: content),
         ),
       ),
@@ -227,13 +231,13 @@ class _AppButtonState extends State<AppButton> with SingleTickerProviderStateMix
       padding: EdgeInsets.symmetric(horizontal: _hPadding),
       decoration: BoxDecoration(
         color: _isHovered ? AppColors.glassOverlay : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.button),
+        borderRadius: BorderRadius.circular(_borderRadius),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: widget.onPressed,
-          borderRadius: BorderRadius.circular(AppRadius.button),
+          borderRadius: BorderRadius.circular(_borderRadius),
           child: Center(child: content),
         ),
       ),

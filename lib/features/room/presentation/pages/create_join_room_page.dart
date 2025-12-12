@@ -1,12 +1,10 @@
-// lib/features/room/presentation/pages/create_join_room_page.dart
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
 import '../../../../core/theme/tokens.dart';
 import '../../../../core/widgets/app_button.dart' show AppButton, AppButtonVariant, AppButtonSize;
-import '../../../../core/widgets/app_card.dart';
-import '../../../../core/widgets/app_text_field.dart';
+import '../../../../core/widgets/app_text_field.dart' show AppTextField, AppTextFieldSize;
+import '../../../../core/widgets/app_logo.dart';
 import '../../../../core/session/session.dart';
 import '../../../room/data/rooms_api.dart';
 import '../../../../core/network/api_client.dart';
@@ -152,9 +150,8 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: AppShadow.glow,
+                                color: AppColors.neutral500.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: AppColors.primary.withValues(alpha: 0.3),
                                   width: 1,
@@ -179,12 +176,14 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
                           ],
                         ),
                         const SizedBox(height: 32),
+                        const AppLogo(size: 64),
+                        const SizedBox(height: 24),
                         const Text(
                           'Start Planning',
                           style: TextStyle(
                             color: AppColors.primary,
                             fontSize: 36,
-                            fontWeight: FontWeight.w900,
+                            fontWeight: FontWeight.w500,
                             letterSpacing: -0.5,
                           ),
                         ),
@@ -212,74 +211,30 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
                         child: Column(
                           children: [
                             // Create Room Card with red accents
-                            AppCard(
-                              withShadow: true,
-                              padding: const EdgeInsets.all(28),
-                              child: Form(
-                                key: _createKey,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.primary,
-                                            borderRadius: BorderRadius.circular(12),
-                                            boxShadow: AppShadow.glow,
-                                          ),
-                                          child: const Icon(
-                                            Icons.add_rounded,
-                                            color: Colors.white,
-                                            size: 24,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        const Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Create Room',
-                                                style: TextStyle(
-                                                  fontSize: 22,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: AppColors.textPrimary,
-                                                ),
-                                              ),
-                                              SizedBox(height: 4),
-                                              Text(
-                                                'Start a new planning session',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: AppColors.textSecondary,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 24),
-                                    AppTextField(
-                                      controller: _createName,
-                                      hint: 'Enter room name',
-                                      textInputAction: TextInputAction.done,
-                                      validator: (v) => (v?.trim().isEmpty ?? true) ? 'Room name is required' : null,
-                                      onSubmitted: (_) => _onCreate(),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    AppButton(
-                                      label: _creating ? 'Creating...' : 'Create Room',
-                                      onPressed: _creating ? null : _onCreate,
-                                      variant: AppButtonVariant.gradient,
-                                      size: AppButtonSize.lg,
-                                      expand: true,
-                                      trailing: const Icon(Icons.arrow_forward_rounded, color: Colors.white),
-                                    ),
-                                  ],
-                                ),
+                            Form(
+                              key: _createKey,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppTextField(
+                                    controller: _createName,
+                                    hint: 'Enter room name',
+                                    textInputAction: TextInputAction.done,
+                                    borderRadius: 10.0,
+                                    size: AppTextFieldSize.md,
+                                    validator: (v) => (v?.trim().isEmpty ?? true) ? 'Room name is required' : null,
+                                    onSubmitted: (_) => _onCreate(),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  AppButton(
+                                    label: _creating ? 'Creating...' : 'Create Room',
+                                    onPressed: _creating ? null : _onCreate,
+                                    size: AppButtonSize.md,
+                                    expand: true,
+                                    borderRadius: 10.0,
+                                    trailing: const Icon(Icons.arrow_forward_rounded, color: Colors.white),
+                                  ),
+                                ],
                               ),
                             ),
 
@@ -307,88 +262,40 @@ class _CreateJoinRoomPageState extends State<CreateJoinRoomPage> with TickerProv
                             const SizedBox(height: 32),
 
                             // Join Room Card
-                            AppCard(
-                              withShadow: true,
-                              padding: const EdgeInsets.all(28),
-                              child: Form(
-                                key: _joinKey,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(12),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.surfaceElevated,
-                                            borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(
-                                              color: AppColors.primary,
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: const Icon(
-                                            Icons.login_rounded,
-                                            color: AppColors.primary,
-                                            size: 24,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 16),
-                                        const Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Join Room',
-                                                style: TextStyle(
-                                                  fontSize: 22,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: AppColors.textPrimary,
-                                                ),
-                                              ),
-                                              SizedBox(height: 4),
-                                              Text(
-                                                'Enter the 6-character room code',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: AppColors.textSecondary,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 24),
-                                    AppTextField(
-                                      controller: _joinCode,
-                                      hint: 'XXXXXX',
-                                      textInputAction: TextInputAction.done,
-                                      inputFormatters: [
-                                        FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
-                                        LengthLimitingTextInputFormatter(6),
-                                      ],
-                                      textCapitalization: TextCapitalization.characters,
-                                      validator: (v) {
-                                        final s = (v ?? '').trim().toUpperCase();
-                                        if (s.isEmpty) return 'Room code is required';
-                                        if (s.length != 6) return 'Room code must be 6 characters';
-                                        if (!RegExp(r'^[0-9A-F]{6}$').hasMatch(s)) return 'Invalid format';
-                                        return null;
-                                      },
-                                      onSubmitted: (_) => _onJoin(),
-                                    ),
-                                    const SizedBox(height: 20),
-                                    AppButton(
-                                      label: _joining ? 'Joining...' : 'Join Room',
-                                      onPressed: _joining ? null : _onJoin,
-                                      variant: AppButtonVariant.secondary,
-                                      size: AppButtonSize.lg,
-                                      expand: true,
-                                      trailing: const Icon(Icons.arrow_forward_rounded, color: AppColors.primary),
-                                    ),
-                                  ],
-                                ),
+                            Form(
+                              key: _joinKey,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppTextField(
+                                    controller: _joinCode,
+                                    hint: 'XXXXXX',
+                                    textInputAction: TextInputAction.done,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.allow(RegExp(r'[0-9a-fA-F]')),
+                                      LengthLimitingTextInputFormatter(6),
+                                    ],
+                                    textCapitalization: TextCapitalization.characters,
+                                    validator: (v) {
+                                      final s = (v ?? '').trim().toUpperCase();
+                                      if (s.isEmpty) return 'Room code is required';
+                                      if (s.length != 6) return 'Room code must be 6 characters';
+                                      if (!RegExp(r'^[0-9A-F]{6}$').hasMatch(s)) return 'Invalid format';
+                                      return null;
+                                    },
+                                    onSubmitted: (_) => _onJoin(),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  AppButton(
+                                    label: _joining ? 'Joining...' : 'Join Room',
+                                    onPressed: _joining ? null : _onJoin,
+                                    variant: AppButtonVariant.secondary,
+                                    size: AppButtonSize.md,
+                                    borderRadius: 10.0,
+                                    expand: true,
+                                    trailing: const Icon(Icons.arrow_forward_rounded, color: AppColors.primary),
+                                  ),
+                                ],
                               ),
                             ),
 

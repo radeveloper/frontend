@@ -1,11 +1,11 @@
 {
-    "name": "frontend",
-    "short_name": "frontend",
+    "name": "EstiMate - Scrum Poker for Agile Teams",
+    "short_name": "EstiMate",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Estimate with precision - Collaboratively estimate project tasks with your team.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

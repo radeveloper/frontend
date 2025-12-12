@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/tokens.dart';
 import '../../../../core/widgets/app_button.dart' show AppButton, AppButtonVariant, AppButtonSize;
 import '../../../../core/widgets/app_text_field.dart';
+import '../../../../core/widgets/app_logo.dart';
 import '../../../../core/routing/routes.dart';
 import '../../../auth/data/auth_api.dart';
 import '../../../../core/network/api_client.dart';
@@ -110,7 +111,7 @@ class _NicknamePageState extends State<NicknamePage> with TickerProviderStateMix
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Animated logo/icon with red theme
+                        // Animated logo with theme
                         TweenAnimationBuilder<double>(
                           tween: Tween(begin: 0.0, end: 1.0),
                           duration: const Duration(milliseconds: 1000),
@@ -119,31 +120,23 @@ class _NicknamePageState extends State<NicknamePage> with TickerProviderStateMix
                             return Transform.scale(
                               scale: value,
                               child: Container(
-                                width: 100,
-                                height: 100,
+                                width: 200,
+                                height: 200,
+                                padding: const EdgeInsets.all(10),
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary,
+                                  color: AppColors.bg,
                                   shape: BoxShape.circle,
-                                  boxShadow: AppShadow.glow,
-                                  border: Border.all(
-                                    color: AppColors.primary.withValues(alpha: 0.3),
-                                    width: 2,
-                                  ),
+                                  boxShadow: AppShadow.soft,
                                 ),
-                                child: const Icon(
-                                  Icons.person_outline_rounded,
-                                  size: 50,
-                                  color: Colors.white,
-                                ),
+                                child: const AppLogo(size: 80),
                               ),
                             );
                           },
                         ),
-                        const SizedBox(height: 40),
 
                         // Title with red color
                         const Text(
-                          'Welcome to Scrum Poker',
+                          'EstiMate',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: AppColors.primary,
@@ -198,20 +191,6 @@ class _NicknamePageState extends State<NicknamePage> with TickerProviderStateMix
                               )
                             : const Icon(Icons.arrow_forward_rounded, color: Colors.white),
                         ),
-
-                        const SizedBox(height: 24),
-
-                        // Decorative element with red accents
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _buildFeatureChip(Icons.groups_rounded, 'Collaborate'),
-                            const SizedBox(width: 12),
-                            _buildFeatureChip(Icons.bolt_rounded, 'Fast'),
-                            const SizedBox(width: 12),
-                            _buildFeatureChip(Icons.insights_rounded, 'Smart'),
-                          ],
-                        ),
                       ],
                     ),
                   ),
@@ -225,32 +204,6 @@ class _NicknamePageState extends State<NicknamePage> with TickerProviderStateMix
 
     return Scaffold(
       body: body,
-    );
-  }
-
-  Widget _buildFeatureChip(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: AppColors.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
